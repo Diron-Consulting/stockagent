@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>StockAgent — Diron Technologies</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+    header{background:#1a1d2e;border-bottom:1px solid #2d3748;padding:14px 28px;display:flex;align-items:center;gap:10px}
+    header h1{font-size:18px;font-weight:700;color:#fff}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+    .header-right{margin-left:auto;font-size:12px;color:#64748b}
+    .nav{background:#1a1d2e;border-bottom:1px solid #2d3748;padding:0 28px;display:flex;gap:2px}
+    .nav-tab{padding:12px 18px;font-size:13px;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;transition:all .15s}
+    .nav-tab:hover{color:#cbd5e1}
+    .nav-tab.active{color:#fff;border-bottom-color:#3b82f6;font-weight:600}
+    .container{max-width:1300px;margin:0 auto;padding:24px}
+    .section{display:none}.section.active{display:block}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+    .card{background:#1a1d2e;border:1px solid #2d3748;border-radius:10px;padding:20px}
+    .card h2{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+    .stat-num{font-size:32px;font-weight:700;color:#fff}
+    .stat-sub{font-size:12px;color:#64748b;margin-top:3px}
+    .full{grid-column:1/-1}
+    table{width:100%;border-collapse:collapse}
+    th{text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid #2d3748}
+    td{padding:10px;border-bottom:1px solid #1e2433;font-size:13px;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:#1e2433}
+    .btn{padding:7px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+    .btn-blue{background:#3b82f6;color:#fff}.btn-blue:hover{background:#2563eb}
+    .btn-green{background:#16a34a;color:#fff}.btn-green:hover{background:#15803d}
+    .btn-ghost{background:#2d3748;color:#cbd5e1}.btn-ghost:hover{background:#374151}
+    .btn-sm{padding:4px 10px;font-size:11px}
+    .actions{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+    .avatar{width:34px;height:34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0}
+    .recipient-name{display:flex;align-items:center;gap:10px}
+    .pill{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600}
+    .pill-duka{background:#1e3a5f;color:#93c5fd}
+    .pill-supermarket{background:#1e3d2f;color:#6ee7b7}
+    .pill-school{background:#3d1e5f;color:#c4b5fd}
+    .pill-wholesale{background:#3d2e1e;color:#fcd34d}
+    .pill-unpaid{background:#7f1d1d;color:#fca5a5}
+    .pill-paid{background:#14532d;color:#86efac}
+    .pill-pending{background:#78350f;color:#fcd34d}
+    .pill-ok{background:#14532d;color:#86efac}
+    .pill-low{background:#78350f;color:#fcd34d}
+    .pill-critical{background:#7f1d1d;color:#fca5a5}
+    .bar-wrap{background:#2d3748;border-radius:999px;height:5px;width:80px;display:inline-block;vertical-align:middle;margin-left:8px}
+    .bar-fill{height:5px;border-radius:999px}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:none;align-items:center;justify-content:center}
+    .modal-overlay.show{display:flex}
+    .modal{background:#1a1d2e;border:1px solid #2d3748;border-radius:12px;padding:28px;width:720px;max-width:95vw;max-height:85vh;overflow-y:auto}
+    .modal h2{font-size:16px;font-weight:700;margin-bottom:20px}
+    .invoice-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #2d3748}
+    .invoice-logo{font-size:22px;font-weight:800;color:#3b82f6}
+    .invoice-meta{text-align:right;font-size:12px;color:#64748b;line-height:1.8}
+    .invoice-to{margin-bottom:20px}
+    .invoice-to h3{font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:6px}
+    .invoice-to p{font-size:14px;line-height:1.7}
+    .invoice-items table th{background:#0d1117}
+    .invoice-total{text-align:right;margin-top:16px;font-size:15px;font-weight:700;color:#fff}
+    .log{background:#0d1117;border:1px solid #2d3748;border-radius:6px;padding:12px;font-family:monospace;font-size:11px;max-height:160px;overflow-y:auto}
+    .log-line{margin-bottom:3px}.log-info{color:#60a5fa}.log-ok{color:#4ade80}.log-warn{color:#fbbf24}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .form-row.full{grid-template-columns:1fr}
+    label{font-size:12px;color:#64748b;display:block;margin-bottom:4px}
+    input,select{width:100%;background:#0d1117;border:1px solid #2d3748;color:#e2e8f0;padding:8px 10px;border-radius:6px;font-size:13px}
+    input:focus,select:focus{outline:none;border-color:#3b82f6}
+    .toast{position:fixed;bottom:20px;right:20px;background:#1a1d2e;border:1px solid #2d3748;border-radius:8px;padding:14px 18px;font-size:13px;max-width:340px;z-index:300;display:none}
+    .toast.show{display:block}.toast.ok{border-color:#16a34a}.toast.err{border-color:#dc2626}
+    .freq-chip{display:inline-block;padding:3px 8px;border-radius:4px;background:#1e2433;font-size:11px;color:#94a3b8;margin-right:4px}
+    .divider{height:1px;background:#2d3748;margin:20px 0}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>StockAgent</h1>
+  <span class="badge" style="background:#3b82f6;color:#fff">POC</span>
+  <span class="badge" id="mode-badge" style="background:#78350f;color:#fcd34d">...</span>
+  <div class="header-right">Mama Pima Distributors · Eldoret, Kenya &nbsp;|&nbsp; Diron Technologies</div>
+</header>
+
+<nav class="nav">
+  <div class="nav-tab active" onclick="nav('dashboard',this)">Dashboard</div>
+  <div class="nav-tab" onclick="nav('recipients',this)">Recipients</div>
+  <div class="nav-tab" onclick="nav('dispatch',this)">Dispatch</div>
+  <div class="nav-tab" onclick="nav('invoices',this)">Invoices</div>
+  <div class="nav-tab" onclick="nav('cycles',this)">Reorder Cycles</div>
+</nav>
+
+<div class="container">
+
+  <!-- ═══════════════ DASHBOARD ═══════════════ -->
+  <div id="tab-dashboard" class="section active">
+    <div class="grid4">
+      <div class="card"><h2>Products Critical</h2><div class="stat-num" id="s-critical">—</div><div class="stat-sub">need immediate reorder</div></div>
+      <div class="card"><h2>Pending Approvals</h2><div class="stat-num" id="s-pending">—</div><div class="stat-sub">awaiting APPROVE</div></div>
+      <div class="card"><h2>Active Recipients</h2><div class="stat-num" id="s-recipients">—</div><div class="stat-sub">dukas, schools, wholesale</div></div>
+      <div class="card"><h2>Unpaid Invoices</h2><div class="stat-num" id="s-unpaid">—</div><div class="stat-sub">outstanding balance</div></div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-blue" onclick="agentScan()">Run Agent Scan</button>
+      <span id="scan-msg" style="font-size:12px;color:#64748b"></span>
+    </div>
+    <div class="card full">
+      <h2>Inventory — Stock Levels</h2>
+      <table><thead><tr><th>SKU</th><th>Product</th><th>Stock</th><th>Threshold</th><th>Status</th><th>Preferred Supplier</th><th>Action</th></tr></thead>
+      <tbody id="tbl-products"></tbody></table>
+    </div>
+    <div class="card full" style="margin-top:16px">
+      <h2>Agent Log</h2>
+      <div class="log" id="agent-log"><div class="log-line log-info">[StockAgent] Ready.</div></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ RECIPIENTS ═══════════════ -->
+  <div id="tab-recipients" class="section">
+    <div class="actions">
+      <button class="btn btn-blue" onclick="showAddRecipient()">+ Add Recipient</button>
+    </div>
+    <div class="card full">
+      <h2>All Recipients</h2>
+      <table>
+        <thead><tr><th>Recipient</th><th>Type</th><th>Location</th><th>Stocking</th><th>Dispatches</th><th>Total (KES)</th><th>Unpaid</th><th>Last Delivery</th><th>Action</th></tr></thead>
+        <tbody id="tbl-recipients"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════ DISPATCH ═══════════════ -->
+  <div id="tab-dispatch" class="section">
+    <div class="grid2">
+      <div class="card">
+        <h2>New Dispatch</h2>
+        <div class="form-row">
+          <div><label>Recipient</label><select id="d-recipient"><option value="">Select recipient...</option></select></div>
+          <div><label>Product</label><select id="d-product"><option value="">Select product...</option></select></div>
+        </div>
+        <div class="form-row">
+          <div><label>Quantity</label><input type="number" id="d-qty" value="5" min="1"/></div>
+          <div><label>Unit Price (KES)</label><input type="number" id="d-price" placeholder="Auto-filled"/></div>
+        </div>
+        <div class="form-row full"><div><label>Notes</label><input type="text" id="d-notes" placeholder="Optional delivery notes"/></div></div>
+        <button class="btn btn-green" onclick="submitDispatch()" style="margin-top:4px">Dispatch</button>
+        <div id="d-msg" style="font-size:12px;color:#64748b;margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h2>Recent Dispatches</h2>
+        <table><thead><tr><th>Recipient</th><th>Product</th><th>Qty</th><th>KES</th><th>When</th></tr></thead>
+        <tbody id="tbl-recent-dispatches"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ INVOICES ═══════════════ -->
+  <div id="tab-invoices" class="section">
+    <div class="actions">
+      <select id="inv-recipient" style="background:#1a1d2e;border:1px solid #2d3748;color:#e2e8f0;padding:7px 12px;border-radius:6px;font-size:13px">
+        <option value="">Select recipient to invoice...</option>
+      </select>
+      <button class="btn btn-blue" onclick="generateInvoice()">Generate Invoice</button>
+    </div>
+    <div class="card full">
+      <h2>All Invoices</h2>
+      <table>
+        <thead><tr><th>Invoice #</th><th>Recipient</th><th>Type</th><th>Total (KES)</th><th>Status</th><th>Due Date</th><th>Issued</th><th>Action</th></tr></thead>
+        <tbody id="tbl-invoices"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════ REORDER CYCLES ═══════════════ -->
+  <div id="tab-cycles" class="section">
+    <div class="card full">
+      <h2>Reorder Cycles</h2>
+      <table>
+        <thead><tr><th>#</th><th>Product</th><th>Supplier</th><th>Qty</th><th>Total (KES)</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
+        <tbody id="tbl-cycles"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- ═══ INVOICE MODAL ═══ -->
+<div class="modal-overlay" id="invoice-modal">
+  <div class="modal">
+    <div id="invoice-content"></div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-ghost" onclick="closeModal('invoice-modal')">Close</button>
+      <button class="btn btn-green" id="btn-mark-paid" onclick="markPaid()">Mark as Paid</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RECIPIENT DETAIL MODAL ═══ -->
+<div class="modal-overlay" id="recipient-modal">
+  <div class="modal">
+    <div id="recipient-content"></div>
+    <button class="btn btn-ghost" onclick="closeModal('recipient-modal')" style="margin-top:16px">Close</button>
+  </div>
+</div>
+
+<!-- ═══ ADD RECIPIENT MODAL ═══ -->
+<div class="modal-overlay" id="add-recipient-modal">
+  <div class="modal" style="max-width:520px">
+    <h2>Add Recipient</h2>
+    <div class="form-row">
+      <div><label>Name</label><input id="nr-name" placeholder="Westlands Mart"/></div>
+      <div><label>Type</label><select id="nr-type"><option value="duka">Duka</option><option value="supermarket">Supermarket</option><option value="school">School</option><option value="wholesale">Wholesale</option></select></div>
+    </div>
+    <div class="form-row">
+      <div><label>Contact Name</label><input id="nr-contact" placeholder="Jane Wanjiku"/></div>
+      <div><label>Phone</label><input id="nr-phone" placeholder="+254711..."/></div>
+    </div>
+    <div class="form-row">
+      <div><label>Email</label><input id="nr-email" placeholder="orders@..."/></div>
+      <div><label>Location</label><input id="nr-location" placeholder="Westlands, Nairobi"/></div>
+    </div>
+    <div class="form-row">
+      <div><label>Payment Terms</label><select id="nr-terms"><option value="cash">Cash</option><option value="net-7">Net 7</option><option value="net-14">Net 14</option><option value="net-30">Net 30</option></select></div>
+      <div><label>Stocking Frequency</label><select id="nr-freq"><option value="daily">Daily</option><option value="twice-weekly">Twice Weekly</option><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select></div>
+    </div>
+    <div class="form-row">
+      <div><label>Color</label><input type="color" id="nr-color" value="#3b82f6" style="height:38px;padding:2px"/></div>
+      <div><label>Credit Limit (KES)</label><input type="number" id="nr-credit" placeholder="0"/></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-blue" onclick="submitRecipient()">Add Recipient</button>
+      <button class="btn btn-ghost" onclick="closeModal('add-recipient-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:3000';
+let currentInvoiceId = null;
+
+// ── Navigation ───────────────────────────────────────────────────
+function nav(name, el) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  ({ dashboard: loadDashboard, recipients: loadRecipients, dispatch: loadDispatch, invoices: loadInvoices, cycles: loadCycles })[name]?.();
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+function toast(msg, type='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = `toast show ${type}`;
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+// ── Log ───────────────────────────────────────────────────────────
+function log(msg, type='info') {
+  const el = document.getElementById('agent-log');
+  const line = document.createElement('div');
+  line.className = `log-line log-${type}`;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(line); el.scrollTop = el.scrollHeight;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+function kes(n) { return 'KES ' + Number(n).toLocaleString(); }
+function ago(ts) {
+  if (!ts) return '—';
+  const diff = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+function typePill(type) {
+  return `<span class="pill pill-${type}">${type}</span>`;
+}
+function avatar(r) {
+  return `<div class="avatar" style="background:${r.color}">${r.initials}</div>`;
+}
+function stockPill(cur, threshold) {
+  const pct = cur / threshold;
+  const cls = pct <= 0.3 ? 'critical' : pct <= 1 ? 'low' : 'ok';
+  const label = pct <= 0.3 ? 'Critical' : pct <= 1 ? 'Low' : 'OK';
+  const fillColor = pct <= 0.3 ? '#ef4444' : pct <= 1 ? '#f59e0b' : '#22c55e';
+  const pctCapped = Math.min(100, pct*100);
+  return `<span class="pill pill-${cls}">${label}</span>
+    <span class="bar-wrap"><span class="bar-fill" style="width:${pctCapped}%;background:${fillColor}"></span></span>`;
+}
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ── DASHBOARD ────────────────────────────────────────────────────
+async function loadDashboard() {
+  const [products, cycles, recipients, invoices] = await Promise.all([
+    fetch(`${API}/api/products`).then(r=>r.json()),
+    fetch(`${API}/api/cycles`).then(r=>r.json()),
+    fetch(`${API}/api/recipients`).then(r=>r.json()),
+    fetch(`${API}/api/invoices`).then(r=>r.json()),
+  ]);
+  document.getElementById('s-critical').textContent = products.filter(p=>p.current_stock<=p.reorder_threshold).length;
+  document.getElementById('s-pending').textContent = cycles.filter(c=>c.status==='pending').length;
+  document.getElementById('s-recipients').textContent = recipients.length;
+  document.getElementById('s-unpaid').textContent = invoices.filter(i=>i.status==='unpaid').length;
+
+  document.getElementById('tbl-products').innerHTML = products.map(p => `
+    <tr>
+      <td style="font-family:monospace;color:#64748b;font-size:11px">${p.sku}</td>
+      <td>${p.name}</td>
+      <td><strong>${p.current_stock}</strong> <span style="color:#64748b">${p.unit}s</span></td>
+      <td>${p.reorder_threshold}</td>
+      <td>${stockPill(p.current_stock, p.reorder_threshold)}</td>
+      <td>${p.supplier_name||'—'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="quickDispatch(${p.id},'${p.name}',${p.unit_price_kes})">Dispatch</button></td>
+    </tr>`).join('');
+}
+
+async function agentScan() {
+  document.getElementById('scan-msg').textContent = 'Scanning...';
+  log('Agent scan triggered');
+  const data = await fetch(`${API}/api/agent/scan`,{method:'POST'}).then(r=>r.json());
+  document.getElementById('scan-msg').textContent = data.message;
+  log(data.message, 'ok');
+  data.cycles?.forEach(c => log(`Reorder queued: ${c.order.product_name} → ${c.order.supplier_name} ${kes(c.order.total_kes)}`, 'warn'));
+  loadDashboard();
+}
+
+function quickDispatch(id, name, price) {
+  nav('dispatch', document.querySelectorAll('.nav-tab')[2]);
+  setTimeout(() => {
+    document.getElementById('d-product').value = id;
+    document.getElementById('d-price').value = price;
+  }, 100);
+}
+
+// ── RECIPIENTS ───────────────────────────────────────────────────
+async function loadRecipients() {
+  const recipients = await fetch(`${API}/api/recipients`).then(r=>r.json());
+  document.getElementById('tbl-recipients').innerHTML = recipients.map(r => `
+    <tr>
+      <td><div class="recipient-name">${avatar(r)}<div><div style="font-weight:600">${r.name}</div><div style="font-size:11px;color:#64748b">${r.contact_name||''} ${r.phone?'· '+r.phone:''}</div></div></div></td>
+      <td>${typePill(r.type)}</td>
+      <td style="color:#94a3b8;font-size:12px">${r.location||'—'}</td>
+      <td><span class="freq-chip">${r.stocking_frequency}</span><span style="font-size:11px;color:#64748b">${r.stocking_day}</span></td>
+      <td style="font-size:12px">${r.total_dispatches||0}</td>
+      <td style="font-weight:600">${kes(r.total_value_kes||0)}</td>
+      <td>${r.unpaid_invoices ? `<span class="pill pill-unpaid">${r.unpaid_invoices} unpaid</span>` : '<span style="color:#64748b;font-size:12px">—</span>'}</td>
+      <td style="font-size:12px;color:#64748b">${ago(r.last_dispatch)}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="viewRecipient(${r.id})">View</button></td>
+    </tr>`).join('');
+}
+
+async function viewRecipient(id) {
+  const data = await fetch(`${API}/api/recipients/${id}`).then(r=>r.json());
+  const r = data;
+  document.getElementById('recipient-content').innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      ${avatar(r)}
+      <div>
+        <div style="font-size:18px;font-weight:700">${r.name}</div>
+        <div style="font-size:12px;color:#64748b">${typePill(r.type)} &nbsp; ${r.location||''}</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+      <div class="card" style="padding:14px"><div style="font-size:11px;color:#64748b">Total Dispatches</div><div style="font-size:22px;font-weight:700">${r.summary.total_dispatches}</div></div>
+      <div class="card" style="padding:14px"><div style="font-size:11px;color:#64748b">Total Value</div><div style="font-size:22px;font-weight:700">${kes(r.summary.total_value_kes)}</div></div>
+      <div class="card" style="padding:14px"><div style="font-size:11px;color:#64748b">Unique Products</div><div style="font-size:22px;font-weight:700">${r.summary.unique_products}</div></div>
+    </div>
+    <div style="font-size:11px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Contact Details</div>
+    <div style="font-size:13px;line-height:2;margin-bottom:16px;color:#cbd5e1">
+      ${r.contact_name ? `<div>Contact: ${r.contact_name}</div>` : ''}
+      ${r.phone ? `<div>Phone: ${r.phone}</div>` : ''}
+      ${r.email ? `<div>Email: ${r.email}</div>` : ''}
+      <div>Payment Terms: <strong>${r.payment_terms}</strong></div>
+      <div>Stocking: <strong>${r.stocking_frequency}</strong> (${r.stocking_day})</div>
+      ${r.credit_limit_kes > 0 ? `<div>Credit Limit: ${kes(r.credit_limit_kes)}</div>` : ''}
+    </div>
+    <div style="font-size:11px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Recent Dispatches</div>
+    <table>
+      <thead><tr><th>Product</th><th>Qty</th><th>Total (KES)</th><th>Date</th></tr></thead>
+      <tbody>${(r.dispatches||[]).slice(0,10).map(d=>`
+        <tr><td>${d.product_name}</td><td>${d.quantity} ${d.unit}</td><td>${kes(d.total_kes)}</td><td style="color:#64748b;font-size:11px">${new Date(d.dispatched_at).toLocaleDateString()}</td></tr>
+      `).join('')}</tbody>
+    </table>`;
+  document.getElementById('recipient-modal').classList.add('show');
+}
+
+function showAddRecipient() { document.getElementById('add-recipient-modal').classList.add('show'); }
+
+async function submitRecipient() {
+  const body = {
+    name: document.getElementById('nr-name').value,
+    type: document.getElementById('nr-type').value,
+    contact_name: document.getElementById('nr-contact').value,
+    phone: document.getElementById('nr-phone').value,
+    email: document.getElementById('nr-email').value,
+    location: document.getElementById('nr-location').value,
+    color: document.getElementById('nr-color').value,
+    payment_terms: document.getElementById('nr-terms').value,
+    stocking_frequency: document.getElementById('nr-freq').value,
+    credit_limit_kes: document.getElementById('nr-credit').value || 0,
+  };
+  if (!body.name) return toast('Name is required', 'err');
+  await fetch(`${API}/api/recipients`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  closeModal('add-recipient-modal');
+  toast(`${body.name} added`);
+  loadRecipients();
+}
+
+// ── DISPATCH ─────────────────────────────────────────────────────
+async function loadDispatch() {
+  const [recipients, products] = await Promise.all([
+    fetch(`${API}/api/recipients`).then(r=>r.json()),
+    fetch(`${API}/api/products`).then(r=>r.json()),
+  ]);
+  document.getElementById('d-recipient').innerHTML = '<option value="">Select recipient...</option>' +
+    recipients.map(r=>`<option value="${r.id}">${r.initials} — ${r.name}</option>`).join('');
+  document.getElementById('d-product').innerHTML = '<option value="">Select product...</option>' +
+    products.map(p=>`<option value="${p.id}" data-price="${p.unit_price_kes}">${p.name} (stock: ${p.current_stock})</option>`).join('');
+  document.getElementById('d-product').addEventListener('change', function() {
+    const opt = this.options[this.selectedIndex];
+    document.getElementById('d-price').value = opt.dataset.price || '';
+  });
+  loadRecentDispatches();
+  // Populate invoice recipient selector too
+  document.getElementById('inv-recipient').innerHTML = '<option value="">Select recipient to invoice...</option>' +
+    recipients.map(r=>`<option value="${r.id}">${r.initials} — ${r.name}</option>`).join('');
+}
+
+async function loadRecentDispatches() {
+  const recipients = await fetch(`${API}/api/analytics/recipients`).then(r=>r.json());
+  document.getElementById('tbl-recent-dispatches').innerHTML = recipients.filter(r=>r.last_dispatch).slice(0,8).map(r=>`
+    <tr>
+      <td><div class="recipient-name">${avatar(r)}<span>${r.name}</span></div></td>
+      <td>${r.dispatch_count}</td>
+      <td>${r.total_units}</td>
+      <td>${kes(r.total_kes)}</td>
+      <td style="color:#64748b;font-size:11px">${ago(r.last_dispatch)}</td>
+    </tr>`).join('');
+}
+
+async function submitDispatch() {
+  const recipient_id = document.getElementById('d-recipient').value;
+  const product_id = document.getElementById('d-product').value;
+  const quantity = parseInt(document.getElementById('d-qty').value);
+  const unit_price_kes = parseFloat(document.getElementById('d-price').value);
+  if (!product_id || !quantity) return toast('Select product and quantity', 'err');
+  const res = await fetch(`${API}/api/products/${product_id}/dispatch`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ recipient_id: recipient_id||null, quantity, unit_price_kes })
+  }).then(r=>r.json());
+  document.getElementById('d-msg').textContent = `Dispatched. New stock: ${res.current_stock}`;
+  toast('Dispatch recorded');
+  loadRecentDispatches();
+}
+
+// ── INVOICES ─────────────────────────────────────────────────────
+async function loadInvoices() {
+  const invoices = await fetch(`${API}/api/invoices`).then(r=>r.json());
+  const recipients = await fetch(`${API}/api/recipients`).then(r=>r.json());
+  document.getElementById('inv-recipient').innerHTML = '<option value="">Select recipient to invoice...</option>' +
+    recipients.map(r=>`<option value="${r.id}">${r.initials} — ${r.name}</option>`).join('');
+  document.getElementById('tbl-invoices').innerHTML = invoices.length ? invoices.map(inv=>`
+    <tr>
+      <td style="font-family:monospace;font-size:12px;color:#94a3b8">${inv.invoice_number}</td>
+      <td><div class="recipient-name"><div class="avatar" style="background:${inv.color};width:28px;height:28px;font-size:10px">${inv.initials}</div>${inv.recipient_name}</div></td>
+      <td>${typePill(inv.recipient_type)}</td>
+      <td style="font-weight:600">${kes(inv.total_kes)}</td>
+      <td><span class="pill pill-${inv.status}">${inv.status}</span></td>
+      <td style="font-size:12px;color:#94a3b8">${inv.due_date||'—'}</td>
+      <td style="font-size:12px;color:#64748b">${new Date(inv.issued_at).toLocaleDateString()}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="viewInvoice(${inv.id})">View</button></td>
+    </tr>`).join('') :
+    `<tr><td colspan="8" style="text-align:center;padding:32px;color:#64748b">No invoices yet. Select a recipient and click Generate Invoice.</td></tr>`;
+}
+
+async function generateInvoice() {
+  const rid = document.getElementById('inv-recipient').value;
+  if (!rid) return toast('Select a recipient first', 'err');
+  const data = await fetch(`${API}/api/invoices/generate/${rid}`, {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json());
+  if (data.error) return toast(data.error, 'err');
+  toast(`Invoice ${data.invoice.invoice_number} created — ${kes(data.total_kes)}`);
+  loadInvoices();
+  viewInvoice(data.invoice.id);
+}
+
+async function viewInvoice(id) {
+  currentInvoiceId = id;
+  const { invoice, items } = await fetch(`${API}/api/invoices/${id}`).then(r=>r.json());
+  document.getElementById('invoice-content').innerHTML = `
+    <div class="invoice-header">
+      <div>
+        <div class="invoice-logo">StockAgent</div>
+        <div style="font-size:12px;color:#64748b;margin-top:4px">Mama Pima Distributors<br>Eldoret, Kenya</div>
+      </div>
+      <div class="invoice-meta">
+        <div style="font-size:18px;font-weight:700;color:#fff">${invoice.invoice_number}</div>
+        <div>Issued: ${new Date(invoice.issued_at).toLocaleDateString()}</div>
+        <div>Due: ${invoice.due_date||'On delivery'}</div>
+        <div>Status: <span class="pill pill-${invoice.status}">${invoice.status}</span></div>
+      </div>
+    </div>
+    <div class="invoice-to">
+      <h3>Bill To</h3>
+      <p><strong>${invoice.recipient_name}</strong><br>
+      ${invoice.contact_name||''}<br>
+      ${invoice.phone||''} ${invoice.email ? '· '+invoice.email : ''}<br>
+      ${invoice.location||''}</p>
+    </div>
+    <div class="invoice-items">
+      <table>
+        <thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+        <tbody>${items.map(it=>`
+          <tr>
+            <td>${it.product_name}</td>
+            <td style="font-family:monospace;font-size:11px;color:#64748b">${it.sku}</td>
+            <td>${it.quantity} ${it.unit}</td>
+            <td>${kes(it.unit_price_kes)}</td>
+            <td style="font-weight:600">${kes(it.total_kes)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="invoice-total">Total: ${kes(invoice.total_kes)}</div>`;
+  document.getElementById('btn-mark-paid').style.display = invoice.status === 'paid' ? 'none' : 'inline-block';
+  document.getElementById('invoice-modal').classList.add('show');
+}
+
+async function markPaid() {
+  await fetch(`${API}/api/invoices/${currentInvoiceId}/mark-paid`, {method:'POST'});
+  toast('Invoice marked as paid');
+  closeModal('invoice-modal');
+  loadInvoices();
+}
+
+// ── REORDER CYCLES ───────────────────────────────────────────────
+async function loadCycles() {
+  const cycles = await fetch(`${API}/api/cycles`).then(r=>r.json());
+  document.getElementById('tbl-cycles').innerHTML = cycles.map(c=>`
+    <tr>
+      <td style="color:#64748b">#${c.id}</td>
+      <td>${c.product_name}</td>
+      <td>${c.supplier_name}</td>
+      <td>${c.quantity}</td>
+      <td style="font-weight:600">${kes(c.total_kes)}</td>
+      <td><span class="pill pill-${c.status}">${c.status}</span></td>
+      <td style="font-size:11px;color:#64748b">${new Date(c.created_at).toLocaleString()}</td>
+      <td>${c.status==='pending'
+        ? `<button class="btn btn-green btn-sm" onclick="approveCycle(${c.id})">APPROVE</button>`
+        : `<span style="font-size:11px;color:#64748b;font-family:monospace">${(c.paypal_transaction_id||'').slice(0,18)}</span>`}
+      </td>
+    </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;padding:32px;color:#64748b">No cycles. Run Agent Scan from Dashboard.</td></tr>`;
+}
+
+async function approveCycle(id) {
+  log(`Approving cycle #${id}...`);
+  const data = await fetch(`${API}/api/cycles/${id}/approve`,{method:'POST'}).then(r=>r.json());
+  if (data.success) {
+    toast(data.message);
+    log(data.message, 'ok');
+    log(`PayPal Batch: ${data.paypal?.batch_id}`, 'info');
+  } else {
+    toast(data.error, 'err');
+    log('Error: ' + data.error, 'warn');
+  }
+  loadCycles();
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+fetch('http://localhost:3001/health').then(r=>r.json()).then(d=>{
+  const b = document.getElementById('mode-badge');
+  b.textContent = d.mode==='MOCK' ? 'MOCK Mode' : 'LIVE · '+d.mode;
+  b.style.background = d.mode==='MOCK' ? '#78350f' : '#14532d';
+  b.style.color = d.mode==='MOCK' ? '#fcd34d' : '#86efac';
+}).catch(()=>{});
+
+loadDashboard();
+setInterval(loadDashboard, 20000);
+</script>
+</body>
+</html>
