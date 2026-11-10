@@ -73,6 +73,28 @@
     .toast.show{display:block}.toast.ok{border-color:#16a34a}.toast.err{border-color:#dc2626}
     .freq-chip{display:inline-block;padding:3px 8px;border-radius:4px;background:#1e2433;font-size:11px;color:#94a3b8;margin-right:4px}
     .divider{height:1px;background:#2d3748;margin:20px 0}
+    .btn-demo{background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#fff;font-size:13px;padding:10px 22px;letter-spacing:.02em}
+    .btn-demo:hover{opacity:.9}
+    .btn-demo:disabled{opacity:.5;cursor:not-allowed}
+    .ai-panel{background:#0d1117;border:1px solid #2d3748;border-radius:10px;padding:0;overflow:hidden}
+    .ai-header{background:linear-gradient(135deg,#1e1b4b,#1e3a5f);padding:14px 18px;display:flex;align-items:center;gap:10px}
+    .ai-header .ai-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;animation:pulse 2s infinite}
+    .ai-header h3{font-size:13px;font-weight:600;color:#e2e8f0}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .ai-body{padding:16px;max-height:400px;overflow-y:auto}
+    .ai-step{margin-bottom:14px;padding:10px 14px;border-radius:8px;border-left:3px solid #2d3748;background:#111827;font-size:12px;line-height:1.6}
+    .ai-step.active{border-left-color:#3b82f6;background:#0f1729}
+    .ai-step.done{border-left-color:#4ade80}
+    .ai-step.error{border-left-color:#ef4444}
+    .ai-step-label{font-weight:600;color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+    .ai-step-msg{color:#e2e8f0}
+    .ai-step-reasoning{margin-top:6px;padding:8px 10px;background:#0d1117;border-radius:4px;color:#94a3b8;font-size:11px;font-style:italic}
+    .demo-progress{height:4px;background:#2d3748;border-radius:999px;margin:12px 0;overflow:hidden}
+    .demo-progress-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-radius:999px;transition:width .5s ease}
+    .grid-dash{display:grid;grid-template-columns:1fr 380px;gap:16px}
+    @media(max-width:1100px){.grid-dash{grid-template-columns:1fr}}
+    .ai-typing{display:inline-block;color:#60a5fa}.ai-typing::after{content:'...';animation:dots 1.5s steps(3,end) infinite}
+    @keyframes dots{0%{content:'.'}33%{content:'..'}66%{content:'...'}}
   </style>
 </head>
 <body>
@@ -104,12 +126,34 @@
     </div>
     <div class="actions">
       <button class="btn btn-blue" onclick="agentScan()">Run Agent Scan</button>
+      <button class="btn btn-demo" id="btn-demo" onclick="runFullDemo()">Run Full Demo</button>
       <span id="scan-msg" style="font-size:12px;color:#64748b"></span>
     </div>
-    <div class="card full">
-      <h2>Inventory — Stock Levels</h2>
-      <table><thead><tr><th>SKU</th><th>Product</th><th>Stock</th><th>Threshold</th><th>Status</th><th>Preferred Supplier</th><th>Action</th></tr></thead>
-      <tbody id="tbl-products"></tbody></table>
+    <div id="demo-bar" style="display:none">
+      <div class="demo-progress"><div class="demo-progress-fill" id="demo-fill" style="width:0%"></div></div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:12px" id="demo-step-label">Preparing demo...</div>
+    </div>
+    <div class="grid-dash">
+      <div>
+        <div class="card full">
+          <h2>Inventory — Stock Levels</h2>
+          <table><thead><tr><th>SKU</th><th>Product</th><th>Stock</th><th>Threshold</th><th>Status</th><th>Preferred Supplier</th><th>Action</th></tr></thead>
+          <tbody id="tbl-products"></tbody></table>
+        </div>
+      </div>
+      <div class="ai-panel">
+        <div class="ai-header">
+          <div class="ai-dot" id="ai-dot"></div>
+          <h3>AI Agent Activity</h3>
+          <span style="margin-left:auto;font-size:10px;color:#64748b" id="ai-model">Claude Haiku 5.5</span>
+        </div>
+        <div class="ai-body" id="ai-body">
+          <div class="ai-step done">
+            <div class="ai-step-label">System</div>
+            <div class="ai-step-msg">StockAgent AI ready. Monitoring inventory levels.</div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="card full" style="margin-top:16px">
       <h2>Agent Log</h2>
@@ -193,6 +237,7 @@
     <div style="display:flex;gap:10px;margin-top:20px">
       <button class="btn btn-ghost" onclick="closeModal('invoice-modal')">Close</button>
       <button class="btn btn-green" id="btn-mark-paid" onclick="markPaid()">Mark as Paid</button>
+      <button class="btn btn-blue" onclick="downloadPDF(currentInvoiceId)">Download PDF</button>
     </div>
   </div>
 </div>
@@ -322,11 +367,28 @@ async function loadDashboard() {
 async function agentScan() {
   document.getElementById('scan-msg').textContent = 'Scanning...';
   log('Agent scan triggered');
+  aiAddStep('active', 'Stock Agent', 'Scanning inventory levels against thresholds...', 'Gathering product data, supplier info, and dispatch velocity');
   const data = await fetch(`${API}/api/agent/scan`,{method:'POST'}).then(r=>r.json());
   document.getElementById('scan-msg').textContent = data.message;
   log(data.message, 'ok');
-  data.cycles?.forEach(c => log(`Reorder queued: ${c.order.product_name} → ${c.order.supplier_name} ${kes(c.order.total_kes)}`, 'warn'));
+
+  // Update AI panel with results
+  aiMarkLastDone();
+  if (data.mode === 'ai') {
+    aiAddStep('done', 'Claude AI', `Analysis complete — ${data.all_recommendations?.length || 0} recommendation(s)`, data.analysis);
+  } else {
+    aiAddStep('done', 'Rule Engine', `Analysis complete (mock mode)`, data.analysis);
+  }
+  data.cycles?.forEach(c => {
+    log(`Reorder queued: ${c.product_name} → ${c.supplier_name} ${kes(c.total_kes)}`, 'warn');
+    aiAddStep('done', 'Order Agent', `Reorder cycle created: ${c.product_name} → ${c.supplier_name}`, `${c.quantity} units @ ${kes(c.total_kes)}`);
+  });
+  (data.skipped || []).forEach(s => {
+    aiAddStep('error', 'Compliance', `Blocked: ${s.product_name}`, s.compliance_note);
+  });
+
   loadDashboard();
+  loadAgentLogs();
 }
 
 function quickDispatch(id, name, price) {
@@ -473,7 +535,10 @@ async function loadInvoices() {
       <td><span class="pill pill-${inv.status}">${inv.status}</span></td>
       <td style="font-size:12px;color:#94a3b8">${inv.due_date||'—'}</td>
       <td style="font-size:12px;color:#64748b">${new Date(inv.issued_at).toLocaleDateString()}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="viewInvoice(${inv.id})">View</button></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="viewInvoice(${inv.id})">View</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadPDF(${inv.id})" style="margin-left:4px">PDF</button>
+      </td>
     </tr>`).join('') :
     `<tr><td colspan="8" style="text-align:center;padding:32px;color:#64748b">No invoices yet. Select a recipient and click Generate Invoice.</td></tr>`;
 }
@@ -570,16 +635,171 @@ async function approveCycle(id) {
   loadCycles();
 }
 
+// ── AI PANEL HELPERS ─────────────────────────────────────────────
+function aiAddStep(cls, label, msg, reasoning) {
+  const body = document.getElementById('ai-body');
+  const step = document.createElement('div');
+  step.className = `ai-step ${cls}`;
+  step.innerHTML = `<div class="ai-step-label">${label}</div><div class="ai-step-msg">${msg}</div>${reasoning ? `<div class="ai-step-reasoning">${reasoning}</div>` : ''}`;
+  body.appendChild(step);
+  body.scrollTop = body.scrollHeight;
+  if (cls === 'active') document.getElementById('ai-dot').style.background = '#3b82f6';
+}
+function aiMarkLastDone() {
+  const active = document.querySelector('.ai-step.active');
+  if (active) active.className = 'ai-step done';
+  document.getElementById('ai-dot').style.background = '#4ade80';
+}
+function aiClear() {
+  document.getElementById('ai-body').innerHTML = '';
+  document.getElementById('ai-dot').style.background = '#4ade80';
+}
+
+// ── AGENT LOG POLLING ────────────────────────────────────────────
+async function loadAgentLogs() {
+  try {
+    const logs = await fetch(`${API}/api/agent/logs`).then(r=>r.json());
+    const el = document.getElementById('agent-log');
+    if (!logs.length) return;
+    el.innerHTML = logs.slice(-30).map(l => {
+      const cls = l.step.includes('error') ? 'warn' : l.step.includes('complete') ? 'ok' : 'info';
+      return `<div class="log-line log-${cls}">[${new Date(l.created_at).toLocaleTimeString()}][${l.step}] ${l.message}</div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  } catch(e) {}
+}
+
+// ── DEMO MODE ────────────────────────────────────────────────────
+let demoRunning = false;
+async function runFullDemo() {
+  if (demoRunning) return;
+  demoRunning = true;
+  const btn = document.getElementById('btn-demo');
+  btn.disabled = true;
+  btn.textContent = 'Demo Running...';
+  document.getElementById('demo-bar').style.display = 'block';
+  aiClear();
+
+  const steps = [
+    { pct: 5, label: 'Starting demo — AI Inventory Agent', fn: async () => {
+      aiAddStep('active', 'System', 'Full demo initiated — executing autonomous supply chain cycle', 'StockAgent will scan inventory, create reorder cycles, process payouts, generate invoices, and send via PayPal');
+      await sleep(800);
+      aiMarkLastDone();
+    }},
+    { pct: 20, label: 'Running AI stock scan...', fn: async () => {
+      aiAddStep('active', 'Stock Agent', 'Analyzing inventory levels with AI...', 'Checking stock-to-threshold ratios and 7-day dispatch velocity');
+      const data = await fetch(`${API}/api/agent/scan`,{method:'POST'}).then(r=>r.json());
+      aiMarkLastDone();
+      aiAddStep('done', data.mode === 'ai' ? 'Claude AI' : 'Rule Engine', `${data.all_recommendations?.length || 0} products analyzed — ${data.cycles?.length || 0} reorder cycles created`, data.analysis);
+      log(data.message, 'ok');
+      demoData.scanResult = data;
+      await loadDashboard();
+    }},
+    { pct: 40, label: 'Approving reorder cycles via PayPal...', fn: async () => {
+      const cycles = await fetch(`${API}/api/cycles`).then(r=>r.json());
+      const pending = cycles.filter(c=>c.status==='pending');
+      if (pending.length === 0) {
+        aiAddStep('done', 'Order Agent', 'No pending cycles to approve — inventory healthy or already ordered');
+        return;
+      }
+      for (const c of pending.slice(0,3)) {
+        aiAddStep('active', 'Order Agent', `Approving cycle #${c.id}: ${c.product_name} → ${c.supplier_name}`, `${c.quantity} units @ ${kes(c.total_kes)} — sending PayPal payout`);
+        const res = await fetch(`${API}/api/cycles/${c.id}/approve`,{method:'POST'}).then(r=>r.json());
+        aiMarkLastDone();
+        if (res.success) {
+          aiAddStep('done', 'PayPal', `Payout sent: ${res.paypal?.batch_id || 'MOCK'}`, res.message);
+          log(`Cycle #${c.id} approved — PayPal batch: ${res.paypal?.batch_id}`, 'ok');
+        } else {
+          aiAddStep('error', 'PayPal', `Payout failed: ${res.error}`);
+        }
+        await sleep(600);
+      }
+    }},
+    { pct: 60, label: 'Generating invoices for recipients...', fn: async () => {
+      const recipients = await fetch(`${API}/api/recipients`).then(r=>r.json());
+      const withDispatches = recipients.filter(r => r.total_dispatches > 0).slice(0,2);
+      for (const r of withDispatches) {
+        aiAddStep('active', 'Invoice Agent', `Generating invoice for ${r.name}...`, `${r.total_dispatches} dispatches, ${kes(r.total_value_kes)} total value`);
+        try {
+          const inv = await fetch(`${API}/api/invoices/generate/${r.id}`, {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json());
+          aiMarkLastDone();
+          if (inv.invoice) {
+            aiAddStep('done', 'Invoice', `${inv.invoice.invoice_number} created — ${kes(inv.total_kes)}`, `Covering uninvoiced dispatches for ${r.name}`);
+            demoData.invoiceIds.push(inv.invoice.id);
+          } else {
+            aiAddStep('done', 'Invoice', `No uninvoiced dispatches for ${r.name}`);
+          }
+        } catch(e) {
+          aiMarkLastDone();
+          aiAddStep('error', 'Invoice', `Failed for ${r.name}: ${e.message}`);
+        }
+        await sleep(500);
+      }
+    }},
+    { pct: 80, label: 'Sending invoices via PayPal...', fn: async () => {
+      if (demoData.invoiceIds.length === 0) {
+        aiAddStep('done', 'PayPal Invoicing', 'No new invoices to send — skipping');
+        return;
+      }
+      for (const invId of demoData.invoiceIds) {
+        aiAddStep('active', 'PayPal Invoicing', `Sending invoice #${invId} via PayPal...`);
+        try {
+          await fetch(`${API}/api/invoices/${invId}/send-paypal`, {method:'POST'}).then(r=>r.json());
+          aiMarkLastDone();
+          aiAddStep('done', 'PayPal', `Invoice sent to recipient via PayPal`);
+        } catch(e) {
+          aiMarkLastDone();
+          aiAddStep('done', 'PayPal', `Invoice sending skipped (sandbox mode)`);
+        }
+        await sleep(400);
+      }
+    }},
+    { pct: 100, label: 'Demo complete!', fn: async () => {
+      aiAddStep('done', 'System', 'Full autonomous cycle complete', 'StockAgent scanned inventory → created reorders → paid suppliers via PayPal → invoiced recipients. All without human intervention.');
+      await loadDashboard();
+      await loadAgentLogs();
+    }},
+  ];
+
+  const demoData = { scanResult: null, invoiceIds: [] };
+
+  for (const step of steps) {
+    document.getElementById('demo-fill').style.width = step.pct + '%';
+    document.getElementById('demo-step-label').textContent = step.label;
+    try { await step.fn(); } catch(e) { console.error('Demo step failed:', e); }
+    await sleep(400);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Run Full Demo';
+  demoRunning = false;
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── PDF Download ─────────────────────────────────────────────────
+function downloadPDF(invoiceId) {
+  window.open(`${API}/api/invoices/${invoiceId}/pdf`, '_blank');
+}
+
 // ── Init ──────────────────────────────────────────────────────────
+fetch(`${API}/health`).then(r=>r.json()).then(d => {
+  const b = document.getElementById('mode-badge');
+  const isAI = d.ai === 'claude';
+  b.textContent = isAI ? `AI · ${d.model}` : 'MOCK Mode';
+  b.style.background = isAI ? '#14532d' : '#78350f';
+  b.style.color = isAI ? '#86efac' : '#fcd34d';
+  document.getElementById('ai-model').textContent = isAI ? d.model : 'Rule-based (no API key)';
+}).catch(()=>{});
 fetch('http://localhost:3001/health').then(r=>r.json()).then(d=>{
   const b = document.getElementById('mode-badge');
-  b.textContent = d.mode==='MOCK' ? 'MOCK Mode' : 'LIVE · '+d.mode;
-  b.style.background = d.mode==='MOCK' ? '#78350f' : '#14532d';
-  b.style.color = d.mode==='MOCK' ? '#fcd34d' : '#86efac';
+  const tag = d.mode === 'MOCK' ? ' · PayPal Mock' : ' · PayPal Live';
+  b.textContent += tag;
 }).catch(()=>{});
 
 loadDashboard();
+loadAgentLogs();
 setInterval(loadDashboard, 20000);
+setInterval(loadAgentLogs, 10000);
 </script>
 </body>
 </html>

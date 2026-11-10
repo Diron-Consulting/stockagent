@@ -2,24 +2,6 @@ version: "3.9"
 
 services:
 
-  # ── Inventory Database ──────────────────────────────────────────
-  db:
-    image: postgres:16-alpine
-    container_name: stockagent-db
-    environment:
-      POSTGRES_DB: stockagent
-      POSTGRES_USER: stockagent
-      POSTGRES_PASSWORD: stockagent123
-    volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stockagent"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   # ── MCP Server (PayPal API Wrapper) ────────────────────────────
   mcp-server:
     build: ./mcp-server
@@ -31,37 +13,24 @@ services:
       PORT: 3001
     ports:
       - "3001:3001"
-    depends_on:
-      db:
-        condition: service_healthy
 
   # ── Backend API + Agent Orchestration ──────────────────────────
   api:
     build: ./services/api
     container_name: stockagent-api
     environment:
-      DATABASE_URL: postgresql://stockagent:stockagent123@db:5432/stockagent
       MCP_SERVER_URL: http://mcp-server:3001
-      BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-placeholder}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-placeholder}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-placeholder}
-      APPROVAL_MODE: auto  # set to "whatsapp" when Twilio keys are added
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       PORT: 3000
     ports:
       - "3000:3000"
     depends_on:
-      db:
-        condition: service_healthy
-      mcp-server:
-        condition: service_started
+      - mcp-server
 
   # ── Frontend Dashboard ──────────────────────────────────────────
   frontend:
     build: ./services/frontend
     container_name: stockagent-frontend
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3000
     ports:
       - "3002:3002"
     depends_on:

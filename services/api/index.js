@@ -1,12 +1,21 @@
+require("dotenv").config();
 const express = require("express");
 const Database = require("better-sqlite3");
 const axios = require("axios");
 const cors = require("cors");
 const path = require("path");
+const Anthropic = require("@anthropic-ai/sdk");
+
+const { router: invoicePdfRouter } = require("./invoice-pdf");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ── AI Client ────────────────────────────────────────────────────
+const AI_ENABLED = !!process.env.ANTHROPIC_API_KEY;
+const anthropic = AI_ENABLED ? new Anthropic() : null;
+const AI_MODEL = "claude-haiku-5-5";
 
 // ── Database setup ────────────────────────────────────────────────
 const db = new Database(path.join(__dirname, "stockagent.db"));
@@ -112,6 +121,14 @@ db.exec(`
     agent_reasoning TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS agent_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    step TEXT NOT NULL,
+    message TEXT NOT NULL,
+    data TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Seed data ─────────────────────────────────────────────────────
@@ -175,57 +192,211 @@ function nextInvoiceNumber() {
   return `INV-${date}-${pad}`;
 }
 
-// ── AGENTS ────────────────────────────────────────────────────────
-function runStockSubAgent() {
-  return db.prepare(`
-    SELECT p.*, s.name as supplier_name, s.paypal_email, s.lead_time_days
+// ── Agent log helper ─────────────────────────────────────────────
+function agentLog(step, message, data = null) {
+  db.prepare("INSERT INTO agent_logs (step, message, data) VALUES (?, ?, ?)").run(
+    step, message, data ? JSON.stringify(data) : null
+  );
+  console.log(`[Agent][${step}] ${message}`);
+}
+
+// ── Gather inventory snapshot for AI ─────────────────────────────
+function gatherInventorySnapshot() {
+  const products = db.prepare(`
+    SELECT p.*, s.name as supplier_name, s.paypal_email, s.lead_time_days, s.id as supplier_id
     FROM products p
     LEFT JOIN suppliers s ON s.id = p.preferred_supplier_id
-    WHERE p.current_stock <= p.reorder_threshold
   `).all();
+  const suppliers = db.prepare("SELECT * FROM suppliers").all();
+  const pendingCycles = db.prepare(`
+    SELECT rc.*, p.name as product_name, s.name as supplier_name
+    FROM reorder_cycles rc
+    JOIN products p ON p.id = rc.product_id
+    JOIN suppliers s ON s.id = rc.supplier_id
+    WHERE rc.status = 'pending'
+  `).all();
+  const recentDispatches = db.prepare(`
+    SELECT d.product_id, p.name as product_name, SUM(d.quantity) as total_dispatched
+    FROM dispatches d JOIN products p ON p.id = d.product_id
+    WHERE d.dispatched_at >= datetime('now', '-7 days')
+    GROUP BY d.product_id
+  `).all();
+  return { products, suppliers, pendingCycles, recentDispatches };
 }
 
-function runOrderSubAgent(product) {
-  const total_kes = product.reorder_quantity * product.unit_price_kes;
+// ── SYSTEM PROMPT ────────────────────────────────────────────────
+const AGENT_SYSTEM_PROMPT = `You are StockAgent, an autonomous AI supply chain agent for Mama Pima Distributors — an FMCG distributor based in Eldoret, Kenya serving dukas, supermarkets, schools, and wholesale outlets.
+
+Your role is to:
+1. STOCK SUB-AGENT: Analyze current inventory levels against reorder thresholds. Flag items as "critical" (stock <= 30% of threshold), "low" (stock <= threshold), or "ok".
+2. ORDER SUB-AGENT: For items needing reorder, select the preferred supplier, determine optimal reorder quantity (use the product's default reorder_quantity), and calculate total cost in KES.
+3. COMPLIANCE SUB-AGENT: Check for duplicate pending orders — if a supplier already has a pending reorder cycle, flag compliance_check as "fail" to prevent double-ordering.
+
+Consider recent dispatch velocity (last 7 days) when assessing urgency. Higher dispatch rates on a low-stock item mean more urgency.
+
+IMPORTANT: Return ONLY valid JSON matching the exact schema below. No markdown, no explanation outside the JSON.`;
+
+const AGENT_USER_TEMPLATE = (snapshot) => `Analyze this inventory and recommend reorder actions.
+
+CURRENT INVENTORY:
+${JSON.stringify(snapshot.products, null, 2)}
+
+SUPPLIERS:
+${JSON.stringify(snapshot.suppliers, null, 2)}
+
+PENDING REORDER CYCLES (check for duplicates):
+${JSON.stringify(snapshot.pendingCycles, null, 2)}
+
+RECENT DISPATCH VELOCITY (last 7 days):
+${JSON.stringify(snapshot.recentDispatches, null, 2)}
+
+Return a JSON object with this exact schema:
+{
+  "analysis": "<2-3 sentence overall supply chain assessment>",
+  "recommendations": [
+    {
+      "product_id": <number>,
+      "product_name": "<string>",
+      "current_stock": <number>,
+      "threshold": <number>,
+      "severity": "critical" | "low" | "ok",
+      "supplier_id": <number>,
+      "supplier_name": "<string>",
+      "quantity": <number>,
+      "unit_price_kes": <number>,
+      "total_kes": <number>,
+      "reasoning": "<1-2 sentence explanation of why this reorder is needed, referencing dispatch velocity and stock ratio>",
+      "compliance_check": "pass" | "fail",
+      "compliance_note": "<explanation — e.g. 'No pending orders for this supplier' or 'Supplier already has pending cycle #X'>"
+    }
+  ]
+}
+
+Only include products that need reordering (severity "critical" or "low"). If all stock is healthy, return an empty recommendations array.`;
+
+// ── Mock AI response for demo/no-key mode ────────────────────────
+function generateMockAIResponse(snapshot) {
+  const lowStock = snapshot.products.filter(p => p.current_stock <= p.reorder_threshold);
+  const pendingSupplierIds = new Set(snapshot.pendingCycles.map(c => c.supplier_id));
+  const dispatchMap = {};
+  for (const d of snapshot.recentDispatches) dispatchMap[d.product_id] = d.total_dispatched;
+
+  const recommendations = lowStock.map(p => {
+    const ratio = p.current_stock / p.reorder_threshold;
+    const severity = ratio <= 0.3 ? "critical" : "low";
+    const hasPending = pendingSupplierIds.has(p.preferred_supplier_id);
+    const velocity = dispatchMap[p.id] || 0;
+    return {
+      product_id: p.id,
+      product_name: p.name,
+      current_stock: p.current_stock,
+      threshold: p.reorder_threshold,
+      severity,
+      supplier_id: p.preferred_supplier_id,
+      supplier_name: p.supplier_name,
+      quantity: p.reorder_quantity,
+      unit_price_kes: p.unit_price_kes,
+      total_kes: p.reorder_quantity * p.unit_price_kes,
+      reasoning: `Stock at ${p.current_stock}/${p.reorder_threshold} (${(ratio * 100).toFixed(0)}%). ${velocity > 0 ? `${velocity} units dispatched in the last 7 days — high burn rate.` : "Low recent dispatch activity."} Reorder ${p.reorder_quantity} ${p.unit}s from ${p.supplier_name} at KES ${p.unit_price_kes} each. Lead time: ${p.lead_time_days} day(s).`,
+      compliance_check: hasPending ? "fail" : "pass",
+      compliance_note: hasPending
+        ? `Supplier ${p.supplier_name} already has a pending reorder cycle. Skipping to prevent duplicate order.`
+        : `No pending orders for ${p.supplier_name}. Clear to proceed.`
+    };
+  });
+
+  const criticalCount = recommendations.filter(r => r.severity === "critical").length;
+  const lowCount = recommendations.filter(r => r.severity === "low").length;
+
   return {
-    product_id: product.id, product_name: product.name,
-    supplier_id: product.preferred_supplier_id, supplier_name: product.supplier_name,
-    paypal_email: product.paypal_email,
-    quantity: product.reorder_quantity, unit_price_kes: product.unit_price_kes,
-    total_kes, total_usd: parseFloat(kesToUsd(total_kes)),
-    reasoning: `Stock at ${product.current_stock} ${product.unit}s — below threshold of ${product.reorder_threshold}. ` +
-               `Reorder ${product.reorder_quantity} from ${product.supplier_name} @ KES ${product.unit_price_kes}. ` +
-               `Delivery in ${product.lead_time_days} day(s).`
+    analysis: `Inventory scan complete. ${criticalCount} product(s) at CRITICAL levels and ${lowCount} at LOW levels requiring immediate reorder. ${snapshot.pendingCycles.length > 0 ? `${snapshot.pendingCycles.length} existing pending cycle(s) detected — compliance checks applied.` : "No pending cycles — all suppliers clear for new orders."}`,
+    recommendations
   };
 }
 
-function runComplianceSubAgent(order) {
-  const existing = db.prepare("SELECT id FROM reorder_cycles WHERE supplier_id=? AND status='pending' LIMIT 1").get(order.supplier_id);
-  return {
-    approved: !existing,
-    reason: existing
-      ? `${order.supplier_name} already has a pending order.`
-      : `Compliance passed for ${order.supplier_name}.`
-  };
-}
+// ── AI-Powered Primary Agent ─────────────────────────────────────
+async function runPrimaryAgent() {
+  agentLog("scan_start", "Primary Logistics Agent triggered — gathering inventory data");
 
-function runPrimaryAgent() {
-  console.log("[Agent] Primary Logistics Agent triggered");
-  const lowStock = runStockSubAgent();
-  if (lowStock.length === 0) return { message: "All stock levels healthy.", cycles: [] };
-  const cycles = [];
-  for (const product of lowStock) {
-    const order = runOrderSubAgent(product);
-    const compliance = runComplianceSubAgent(order);
-    if (!compliance.approved) { console.log(`[Compliance] ${compliance.reason}`); continue; }
-    const result = db.prepare(`
-      INSERT INTO reorder_cycles (product_id,supplier_id,quantity,unit_price_kes,total_kes,status,approval_requested_at,agent_reasoning)
-      VALUES (?,?,?,?,?,'pending',datetime('now'),?)
-    `).run(order.product_id, order.supplier_id, order.quantity, order.unit_price_kes, order.total_kes, order.reasoning);
-    cycles.push({ cycle_id: result.lastInsertRowid, order });
-    console.log(`[Agent] Cycle #${result.lastInsertRowid}: ${order.product_name} → ${order.supplier_name} KES ${order.total_kes}`);
+  const snapshot = gatherInventorySnapshot();
+  agentLog("data_gathered", `Inventory snapshot: ${snapshot.products.length} products, ${snapshot.suppliers.length} suppliers, ${snapshot.pendingCycles.length} pending cycles`, {
+    products: snapshot.products.length,
+    low_stock: snapshot.products.filter(p => p.current_stock <= p.reorder_threshold).length
+  });
+
+  let aiResult;
+  const mode = AI_ENABLED ? "ai" : "mock";
+
+  if (AI_ENABLED) {
+    agentLog("ai_call", `Calling Claude ${AI_MODEL} for supply chain analysis...`);
+    try {
+      const response = await anthropic.messages.create({
+        model: AI_MODEL,
+        max_tokens: 4096,
+        system: AGENT_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: AGENT_USER_TEMPLATE(snapshot) }],
+      });
+
+      const text = response.content.find(b => b.type === "text")?.text || "{}";
+      agentLog("ai_response", `Claude responded (${response.usage.input_tokens} input, ${response.usage.output_tokens} output tokens)`, {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+        model: response.model
+      });
+
+      // Parse — strip any markdown fences the model might add
+      const cleaned = text.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
+      aiResult = JSON.parse(cleaned);
+    } catch (err) {
+      agentLog("ai_error", `AI call failed: ${err.message} — falling back to rule-based analysis`);
+      aiResult = generateMockAIResponse(snapshot);
+    }
+  } else {
+    agentLog("mock_mode", "No ANTHROPIC_API_KEY — using rule-based analysis (set key for AI mode)");
+    aiResult = generateMockAIResponse(snapshot);
   }
-  return { message: `${cycles.length} cycle(s) queued`, cycles };
+
+  agentLog("analysis", aiResult.analysis, { recommendation_count: aiResult.recommendations?.length || 0 });
+
+  // Process recommendations into reorder cycles
+  const cycles = [];
+  const passedRecs = (aiResult.recommendations || []).filter(r => r.compliance_check === "pass" && (r.severity === "critical" || r.severity === "low"));
+
+  for (const rec of passedRecs) {
+    const existing = db.prepare("SELECT id FROM reorder_cycles WHERE product_id=? AND status='pending'").get(rec.product_id);
+    if (existing) {
+      agentLog("compliance_block", `Skipped ${rec.product_name} — pending cycle #${existing.id} already exists`);
+      continue;
+    }
+
+    const result = db.prepare(`
+      INSERT INTO reorder_cycles (product_id, supplier_id, quantity, unit_price_kes, total_kes, status, approval_requested_at, agent_reasoning)
+      VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'), ?)
+    `).run(rec.product_id, rec.supplier_id, rec.quantity, rec.unit_price_kes, rec.total_kes, rec.reasoning);
+
+    cycles.push({ cycle_id: result.lastInsertRowid, ...rec });
+    agentLog("cycle_created", `Reorder cycle #${result.lastInsertRowid}: ${rec.product_name} → ${rec.supplier_name} | ${rec.quantity} units @ KES ${rec.total_kes}`, {
+      cycle_id: result.lastInsertRowid,
+      severity: rec.severity
+    });
+  }
+
+  const skipped = (aiResult.recommendations || []).filter(r => r.compliance_check === "fail");
+  for (const s of skipped) {
+    agentLog("compliance_skip", `${s.product_name}: ${s.compliance_note}`);
+  }
+
+  const summary = `${cycles.length} reorder cycle(s) created. ${skipped.length} skipped (compliance). Mode: ${mode}.`;
+  agentLog("scan_complete", summary, { cycles_created: cycles.length, skipped: skipped.length });
+
+  return {
+    message: summary,
+    analysis: aiResult.analysis,
+    mode,
+    cycles,
+    skipped,
+    all_recommendations: aiResult.recommendations || []
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -261,7 +432,14 @@ app.post("/api/products/:id/dispatch", (req, res) => {
     recipient_id ? `Dispatched to recipient #${recipient_id}` : "Manual dispatch"
   );
 
-  res.json({ ...db.prepare("SELECT * FROM products WHERE id=?").get(req.params.id), dispatch_id: dispatch.lastInsertRowid });
+  const updated = db.prepare("SELECT * FROM products WHERE id=?").get(req.params.id);
+  res.json({ ...updated, dispatch_id: dispatch.lastInsertRowid });
+
+  // Auto-trigger: if stock dropped below threshold, run agent scan asynchronously
+  if (updated.current_stock <= updated.reorder_threshold) {
+    agentLog("auto_trigger", `${updated.name} dropped to ${updated.current_stock}/${updated.reorder_threshold} after dispatch — triggering agent scan`);
+    runPrimaryAgent().catch(err => agentLog("auto_trigger_error", err.message));
+  }
 });
 
 // ── Recipients ────────────────────────────────────────────────────
@@ -314,7 +492,7 @@ app.post("/api/recipients", (req, res) => {
 // ── Invoices ──────────────────────────────────────────────────────
 app.post("/api/invoices/generate/:recipient_id", (req, res) => {
   const { recipient_id } = req.params;
-  const { dispatch_ids } = req.body; // optional: specific dispatches, else all unbilled
+  const { dispatch_ids } = req.body;
 
   const recipient = db.prepare("SELECT * FROM recipients WHERE id=?").get(recipient_id);
   if (!recipient) return res.status(404).json({ error: "Recipient not found" });
@@ -371,6 +549,35 @@ app.post("/api/invoices/:id/mark-paid", (req, res) => {
   res.json(db.prepare("SELECT * FROM invoices WHERE id=?").get(req.params.id));
 });
 
+app.post("/api/invoices/:id/send-paypal", async (req, res) => {
+  const invoice = db.prepare(`SELECT i.*,r.email,r.name as recipient_name FROM invoices i JOIN recipients r ON r.id=i.recipient_id WHERE i.id=?`).get(req.params.id);
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+  const items_data = db.prepare(`SELECT ii.*,p.name as product_name,p.unit FROM invoice_items ii JOIN products p ON p.id=ii.product_id WHERE ii.invoice_id=?`).all(req.params.id);
+  const amount_usd = parseFloat(kesToUsd(invoice.total_kes));
+
+  try {
+    const mcpRes = await axios.post(`${MCP_URL}/tools/create_invoice`, {
+      recipient_email: invoice.email || "customer@example.com",
+      recipient_name: invoice.recipient_name,
+      note: `StockAgent Invoice ${invoice.invoice_number}`,
+      due_date: invoice.due_date,
+      items: items_data.map(it => ({
+        name: it.product_name,
+        quantity: it.quantity,
+        unit_price: parseFloat(kesToUsd(it.unit_price_kes)),
+        currency: "USD"
+      }))
+    });
+
+    db.prepare("UPDATE invoices SET paypal_invoice_id=? WHERE id=?").run(mcpRes.data.invoice_id, req.params.id);
+    agentLog("invoice_sent", `Invoice ${invoice.invoice_number} sent via PayPal: ${mcpRes.data.invoice_id}`);
+    res.json({ success: true, paypal: mcpRes.data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Analytics: recipient stocking frequency heatmap data ─────────
 app.get("/api/analytics/recipients", (req, res) => {
   const data = db.prepare(`
@@ -388,12 +595,132 @@ app.get("/api/analytics/recipients", (req, res) => {
   res.json(data);
 });
 
-// ── Reorder cycles ────────────────────────────────────────────────
-app.post("/api/agent/scan", (req, res) => {
-  try { res.json(runPrimaryAgent()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+// ── Agent scan (AI-powered) ──────────────────────────────────────
+app.post("/api/agent/scan", async (req, res) => {
+  try {
+    const result = await runPrimaryAgent();
+    res.json(result);
+  } catch (err) {
+    agentLog("scan_error", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
+// ── Agent logs ───────────────────────────────────────────────────
+app.get("/api/agent/logs", (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  const logs = db.prepare("SELECT * FROM agent_logs ORDER BY id DESC LIMIT ?").all(limit);
+  res.json(logs.reverse());
+});
+
+// ── Demo mode ────────────────────────────────────────────────────
+app.post("/api/agent/demo", async (req, res) => {
+  const steps = [];
+  const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+  try {
+    agentLog("demo_start", "=== FULL DEMO SEQUENCE STARTED ===");
+    steps.push({ step: "demo_start", message: "Demo sequence initiated" });
+
+    // Step 1: Pick a product and recipient, dispatch enough to make stock critical
+    const product = db.prepare(`
+      SELECT p.*, s.name as supplier_name
+      FROM products p LEFT JOIN suppliers s ON s.id = p.preferred_supplier_id
+      ORDER BY (CAST(p.current_stock AS REAL) / p.reorder_threshold) DESC LIMIT 1
+    `).get();
+
+    const recipient = db.prepare("SELECT * FROM recipients LIMIT 1").get();
+
+    const dispatchQty = Math.max(1, product.current_stock - Math.floor(product.reorder_threshold * 0.2));
+    agentLog("demo_dispatch", `Dispatching ${dispatchQty} ${product.unit}s of ${product.name} to ${recipient.name} to simulate demand spike`);
+    steps.push({ step: "dispatch", message: `Dispatching ${dispatchQty}x ${product.name} to ${recipient.name}` });
+
+    db.prepare("UPDATE products SET current_stock = MAX(0, current_stock - ?) WHERE id=?").run(dispatchQty, product.id);
+    const dispResult = db.prepare(`INSERT INTO dispatches (recipient_id,product_id,quantity,unit_price_kes,total_kes) VALUES (?,?,?,?,?)`).run(
+      recipient.id, product.id, dispatchQty, product.unit_price_kes, dispatchQty * product.unit_price_kes
+    );
+    db.prepare("INSERT INTO stock_events (product_id,event_type,quantity,note) VALUES (?,?,?,?)").run(
+      product.id, "dispatch", dispatchQty, `Demo dispatch to ${recipient.name}`
+    );
+
+    const updatedProduct = db.prepare("SELECT * FROM products WHERE id=?").get(product.id);
+    steps.push({ step: "stock_dropped", message: `${product.name} stock dropped to ${updatedProduct.current_stock}/${updatedProduct.reorder_threshold}`, product: updatedProduct });
+
+    await delay(800);
+
+    // Step 2: Run AI agent scan
+    agentLog("demo_scan", "Triggering AI agent scan after stock drop...");
+    steps.push({ step: "agent_scan", message: "AI agent analyzing inventory..." });
+    const scanResult = await runPrimaryAgent();
+    steps.push({ step: "scan_result", message: scanResult.message, analysis: scanResult.analysis, cycles: scanResult.cycles });
+
+    await delay(500);
+
+    // Step 3: Auto-approve first pending cycle and pay via PayPal
+    if (scanResult.cycles.length > 0) {
+      const cycle = db.prepare(`
+        SELECT rc.*, p.name as product_name, s.paypal_email, s.name as supplier_name
+        FROM reorder_cycles rc JOIN products p ON p.id=rc.product_id JOIN suppliers s ON s.id=rc.supplier_id
+        WHERE rc.id=? AND rc.status='pending'
+      `).get(scanResult.cycles[0].cycle_id);
+
+      if (cycle) {
+        const amount_usd = parseFloat(kesToUsd(cycle.total_kes));
+        agentLog("demo_approve", `Auto-approving cycle #${cycle.id}: paying $${amount_usd} to ${cycle.supplier_name} via PayPal`);
+        steps.push({ step: "payment", message: `Sending $${amount_usd} to ${cycle.supplier_name} via PayPal` });
+
+        try {
+          const payoutRes = await axios.post(`${MCP_URL}/tools/send_payout`, {
+            recipient_email: cycle.paypal_email,
+            amount_usd,
+            note: `StockAgent reorder: ${cycle.product_name} x${cycle.quantity}`,
+            sender_item_id: `STOCKAGENT-DEMO-${cycle.id}-${Date.now()}`
+          });
+          db.prepare("UPDATE reorder_cycles SET status='paid',approved_at=datetime('now'),paid_at=datetime('now'),paypal_transaction_id=? WHERE id=?").run(payoutRes.data.batch_id, cycle.id);
+          db.prepare("UPDATE products SET current_stock=current_stock+? WHERE id=?").run(cycle.quantity, cycle.product_id);
+          db.prepare("INSERT INTO stock_events (product_id,event_type,quantity,note) VALUES (?,?,?,?)").run(cycle.product_id, "restock", cycle.quantity, `PayPal Demo: ${payoutRes.data.batch_id}`);
+
+          const restockedProduct = db.prepare("SELECT * FROM products WHERE id=?").get(cycle.product_id);
+          steps.push({ step: "payment_complete", message: `Payment sent! Batch: ${payoutRes.data.batch_id}. Stock restocked to ${restockedProduct.current_stock}.`, paypal: payoutRes.data });
+          agentLog("demo_paid", `PayPal payout complete: ${payoutRes.data.batch_id}. Stock restocked to ${restockedProduct.current_stock}.`);
+        } catch (err) {
+          steps.push({ step: "payment_error", message: `PayPal call failed: ${err.message}` });
+          agentLog("demo_pay_error", err.message);
+        }
+      }
+    }
+
+    // Step 4: Generate invoice for the dispatch
+    const unbilled = db.prepare(`
+      SELECT d.* FROM dispatches d WHERE d.invoice_id IS NULL AND d.recipient_id=? AND d.id=?
+    `).get(recipient.id, dispResult.lastInsertRowid);
+
+    if (unbilled) {
+      const invoiceNum = nextInvoiceNumber();
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 30);
+      const inv = db.prepare(`INSERT INTO invoices (invoice_number,recipient_id,total_kes,status,due_date) VALUES (?,?,?,'unpaid',?)`).run(
+        invoiceNum, recipient.id, unbilled.total_kes, dueDate.toISOString().slice(0,10)
+      );
+      db.prepare("INSERT INTO invoice_items (invoice_id,product_id,quantity,unit_price_kes,total_kes) VALUES (?,?,?,?,?)").run(
+        inv.lastInsertRowid, unbilled.product_id, unbilled.quantity, unbilled.unit_price_kes, unbilled.total_kes
+      );
+      db.prepare("UPDATE dispatches SET invoice_id=? WHERE id=?").run(inv.lastInsertRowid, unbilled.id);
+      steps.push({ step: "invoice", message: `Invoice ${invoiceNum} generated for ${recipient.name}: KES ${unbilled.total_kes.toLocaleString()}` });
+      agentLog("demo_invoice", `Invoice ${invoiceNum} created: KES ${unbilled.total_kes}`);
+    }
+
+    agentLog("demo_complete", "=== DEMO SEQUENCE COMPLETE ===");
+    steps.push({ step: "demo_complete", message: "Full agentic commerce cycle complete: Dispatch → AI Analysis → Supplier Payment → Invoice" });
+
+    res.json({ success: true, steps });
+  } catch (err) {
+    agentLog("demo_error", err.message);
+    res.status(500).json({ error: err.message, steps });
+  }
+});
+
+// ── Reorder cycles ────────────────────────────────────────────────
 app.get("/api/cycles", (req, res) => {
   res.json(db.prepare(`
     SELECT rc.*, p.name as product_name, p.sku, s.name as supplier_name
@@ -420,6 +747,7 @@ app.post("/api/cycles/:id/approve", async (req, res) => {
     db.prepare("UPDATE reorder_cycles SET status='paid',approved_at=datetime('now'),paid_at=datetime('now'),paypal_transaction_id=? WHERE id=?").run(payoutRes.data.batch_id, req.params.id);
     db.prepare("UPDATE products SET current_stock=current_stock+? WHERE id=?").run(cycle.quantity, cycle.product_id);
     db.prepare("INSERT INTO stock_events (product_id,event_type,quantity,note) VALUES (?,?,?,?)").run(cycle.product_id, "restock", cycle.quantity, `PayPal: ${payoutRes.data.batch_id}`);
+    agentLog("cycle_approved", `Cycle #${cycle.id} approved — $${amount_usd} sent to ${cycle.supplier_name}`, { batch_id: payoutRes.data.batch_id });
     res.json({ success: true, message: `Payment of $${amount_usd} (KES ${cycle.total_kes}) sent to ${cycle.supplier_name}`, paypal: payoutRes.data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -427,10 +755,21 @@ app.post("/api/cycles/:id/approve", async (req, res) => {
 });
 
 // ── Health ────────────────────────────────────────────────────────
-app.get("/health", (req, res) => res.json({ status: "ok", db: "sqlite", timestamp: new Date().toISOString() }));
+app.get("/health", (req, res) => res.json({
+  status: "ok",
+  db: "sqlite",
+  ai: AI_ENABLED ? "claude" : "mock",
+  model: AI_MODEL,
+  timestamp: new Date().toISOString()
+}));
+
+// ── Invoice PDF route ────────────────────────────────────────────
+app.locals.db = db;
+app.use(invoicePdfRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`StockAgent API on http://localhost:${PORT}`);
-  setTimeout(() => runPrimaryAgent(), 1500);
+  console.log(`AI Mode: ${AI_ENABLED ? `Claude ${AI_MODEL}` : "MOCK (set ANTHROPIC_API_KEY for AI)"}`);
+  setTimeout(() => runPrimaryAgent().catch(err => console.error("[Agent] Startup scan error:", err.message)), 1500);
 });
