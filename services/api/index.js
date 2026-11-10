@@ -600,6 +600,18 @@ app.get("/api/analytics/recipients", (req, res) => {
   res.json(data);
 });
 
+// ── Dispatches ──────────────────────────────────────────────────
+app.get("/api/dispatches", (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  res.json(db.prepare(`
+    SELECT d.*, p.name as product_name, p.sku, p.unit, r.name as recipient_name, r.initials, r.color
+    FROM dispatches d
+    JOIN products p ON p.id = d.product_id
+    LEFT JOIN recipients r ON r.id = d.recipient_id
+    ORDER BY d.dispatched_at DESC LIMIT ?
+  `).all(limit));
+});
+
 // ── Agent scan (AI-powered) ──────────────────────────────────────
 app.post("/api/agent/scan", async (req, res) => {
   try {

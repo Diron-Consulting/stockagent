@@ -319,11 +319,12 @@ const _configReady = fetch('/config').then(r=>r.json()).then(c=>{
 let currentInvoiceId = null;
 
 // ── Navigation ───────────────────────────────────────────────────
-function nav(name, el) {
+async function nav(name, el) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
+  await _configReady;
   ({ dashboard: loadDashboard, recipients: loadRecipients, dispatch: loadDispatch, invoices: loadInvoices, cycles: loadCycles, paypal: loadPaypal })[name]?.();
 }
 
@@ -548,15 +549,15 @@ async function loadDispatch() {
 }
 
 async function loadRecentDispatches() {
-  const recipients = await fetch(`${API}/api/analytics/recipients`).then(r=>r.json());
-  document.getElementById('tbl-recent-dispatches').innerHTML = recipients.filter(r=>r.last_dispatch).slice(0,8).map(r=>`
+  const dispatches = await fetch(`${API}/api/dispatches?limit=10`).then(r=>r.json());
+  document.getElementById('tbl-recent-dispatches').innerHTML = dispatches.length ? dispatches.map(d=>`
     <tr>
-      <td><div class="recipient-name">${avatar(r)}<span>${r.name}</span></div></td>
-      <td>${r.dispatch_count}</td>
-      <td>${r.total_units}</td>
-      <td>${kes(r.total_kes)}</td>
-      <td style="color:#64748b;font-size:11px">${ago(r.last_dispatch)}</td>
-    </tr>`).join('');
+      <td>${d.recipient_name ? `<div class="recipient-name">${avatar(d)}<span>${d.recipient_name}</span></div>` : '<span style="color:#64748b">—</span>'}</td>
+      <td>${d.product_name}</td>
+      <td>${d.quantity} ${d.unit||''}</td>
+      <td>${kes(d.total_kes)}</td>
+      <td style="color:#64748b;font-size:11px">${ago(d.dispatched_at)}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:#64748b;text-align:center">No dispatches yet</td></tr>';
 }
 
 async function submitDispatch() {
@@ -694,12 +695,11 @@ async function approveCycle(id) {
 }
 
 // ── PAYPAL TRANSACTIONS ──────────────────────────────────────────
-const MCP = MCP_BASE;
 async function loadPaypal() {
   try {
     const [health, txData] = await Promise.all([
-      fetch(`${MCP}/health`).then(r=>r.json()),
-      fetch(`${MCP}/tools/transactions`).then(r=>r.json()),
+      fetch(`${MCP_BASE}/health`).then(r=>r.json()),
+      fetch(`${MCP_BASE}/tools/transactions`).then(r=>r.json()),
     ]);
 
     // Mode badge
