@@ -326,7 +326,7 @@ async function runPrimaryAgent() {
   });
 
   let aiResult;
-  const mode = AI_ENABLED ? "ai" : "mock";
+  const mode = AI_ENABLED ? "ai" : "rule_engine";
 
   if (AI_ENABLED) {
     agentLog("ai_call", `Calling Claude ${AI_MODEL} for supply chain analysis...`);
@@ -688,6 +688,7 @@ app.post("/api/agent/demo", async (req, res) => {
           const restockedProduct = db.prepare("SELECT * FROM products WHERE id=?").get(cycle.product_id);
           steps.push({ step: "payment_complete", message: `Payment sent! Batch: ${payoutRes.data.batch_id}. Stock restocked to ${restockedProduct.current_stock}.`, paypal: payoutRes.data });
           agentLog("demo_paid", `PayPal payout complete: ${payoutRes.data.batch_id}. Stock restocked to ${restockedProduct.current_stock}.`);
+          notifyPayoutSent(cycle, payoutRes.data.batch_id, amount_usd);
         } catch (err) {
           steps.push({ step: "payment_error", message: `PayPal call failed: ${err.message}` });
           agentLog("demo_pay_error", err.message);
@@ -711,6 +712,8 @@ app.post("/api/agent/demo", async (req, res) => {
         inv.lastInsertRowid, unbilled.product_id, unbilled.quantity, unbilled.unit_price_kes, unbilled.total_kes
       );
       db.prepare("UPDATE dispatches SET invoice_id=? WHERE id=?").run(inv.lastInsertRowid, unbilled.id);
+      const demoInvoice = db.prepare("SELECT * FROM invoices WHERE id=?").get(inv.lastInsertRowid);
+      notifyInvoiceCreated(demoInvoice, recipient.name, unbilled.total_kes);
       steps.push({ step: "invoice", message: `Invoice ${invoiceNum} generated for ${recipient.name}: KES ${unbilled.total_kes.toLocaleString()}` });
       agentLog("demo_invoice", `Invoice ${invoiceNum} created: KES ${unbilled.total_kes}`);
     }
@@ -764,7 +767,7 @@ app.post("/api/cycles/:id/approve", async (req, res) => {
 app.get("/health", (req, res) => res.json({
   status: "ok",
   db: "sqlite",
-  ai: AI_ENABLED ? "claude" : "mock",
+  ai: AI_ENABLED ? "claude" : "rule_engine",
   model: AI_MODEL,
   timestamp: new Date().toISOString()
 }));
@@ -776,6 +779,6 @@ app.use(invoicePdfRouter);
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`StockAgent API on http://localhost:${PORT}`);
-  console.log(`AI Mode: ${AI_ENABLED ? `Claude ${AI_MODEL}` : "MOCK (set ANTHROPIC_API_KEY for AI)"}`);
+  console.log(`AI Mode: ${AI_ENABLED ? `Claude ${AI_MODEL}` : "Rule Engine (set ANTHROPIC_API_KEY for AI)"}`);
   setTimeout(() => runPrimaryAgent().catch(err => console.error("[Agent] Startup scan error:", err.message)), 1500);
 });

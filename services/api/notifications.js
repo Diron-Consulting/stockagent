@@ -1,10 +1,24 @@
 const axios = require("axios");
+const nodemailer = require("nodemailer");
 
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL;
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM = process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+14155238886";
 const WHATSAPP_TO = process.env.WHATSAPP_NOTIFY_NUMBER;
+const CALLMEBOT_APIKEY = process.env.CALLMEBOT_APIKEY;
+
+const EMAIL_FROM = process.env.EMAIL_FROM;
+const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
+const EMAIL_TO = process.env.EMAIL_TO || EMAIL_FROM;
+
+const emailTransport =
+  EMAIL_FROM && EMAIL_APP_PASSWORD
+    ? nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: EMAIL_FROM, pass: EMAIL_APP_PASSWORD },
+      })
+    : null;
 
 async function sendDiscord(embed) {
   if (!DISCORD_WEBHOOK) return;
@@ -19,25 +33,70 @@ async function sendDiscord(embed) {
   }
 }
 
-async function sendWhatsApp(message) {
-  if (!TWILIO_SID || !TWILIO_TOKEN || !WHATSAPP_TO) return;
+async function sendEmail(subject, html) {
+  if (!emailTransport) return;
+  try {
+    await emailTransport.sendMail({
+      from: `"StockAgent" <${EMAIL_FROM}>`,
+      to: EMAIL_TO,
+      subject,
+      html,
+    });
+    console.log("[Notify][Email] Sent:", subject);
+  } catch (err) {
+    console.error("[Notify][Email]", err.message);
+  }
+}
+
+async function sendWhatsAppTwilio(message) {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !WHATSAPP_TO) return false;
   try {
     const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`;
-    await axios.post(
+    const params = {
+      To: `whatsapp:${WHATSAPP_TO}`,
+      Body: message,
+    };
+    if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+      params.MessagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+    } else {
+      params.From = TWILIO_FROM;
+    }
+    const resp = await axios.post(
       url,
-      new URLSearchParams({
-        From: TWILIO_FROM,
-        To: `whatsapp:${WHATSAPP_TO}`,
-        Body: message,
-      }).toString(),
+      new URLSearchParams(params).toString(),
       {
         auth: { username: TWILIO_SID, password: TWILIO_TOKEN },
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       }
     );
+    console.log("[Notify][WhatsApp][Twilio] Sent:", resp.data.sid);
+    return true;
   } catch (err) {
-    console.error("[Notify][WhatsApp]", err.message);
+    const detail = err.response?.data || err.message;
+    console.error("[Notify][WhatsApp][Twilio]", JSON.stringify(detail));
+    return false;
   }
+}
+
+async function sendWhatsAppCallMeBot(message) {
+  if (!CALLMEBOT_APIKEY || !WHATSAPP_TO) return false;
+  try {
+    const phone = WHATSAPP_TO.replace("+", "");
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&apikey=${CALLMEBOT_APIKEY}&text=${encodeURIComponent(message)}`;
+    await axios.get(url);
+    console.log("[Notify][WhatsApp][CallMeBot] Sent to", WHATSAPP_TO);
+    return true;
+  } catch (err) {
+    console.error("[Notify][WhatsApp][CallMeBot]", err.message);
+    return false;
+  }
+}
+
+async function sendWhatsApp(message) {
+  if (CALLMEBOT_APIKEY && WHATSAPP_TO) {
+    return sendWhatsAppCallMeBot(message);
+  }
+  return sendWhatsAppTwilio(message);
 }
 
 function notifyStockAlert(analysis, recommendations) {
@@ -76,6 +135,17 @@ function notifyStockAlert(analysis, recommendations) {
     ),
   ].join("\n");
   sendWhatsApp(wa);
+
+  const rows = recommendations
+    .map(
+      (r) =>
+        `<tr><td>${r.severity === "critical" ? "🔴 Critical" : "🟡 Low"}</td><td>${r.product_name}</td><td>${r.current_stock}/${r.threshold}</td><td>${r.quantity} from ${r.supplier_name}</td></tr>`
+    )
+    .join("");
+  sendEmail(
+    `📦 Stock Alert — ${critical.length} critical, ${low.length} low`,
+    `<h2>Stock Alert — Reorder Needed</h2><p>${analysis}</p><table border="1" cellpadding="6" style="border-collapse:collapse"><tr><th>Severity</th><th>Product</th><th>Stock/Threshold</th><th>Reorder</th></tr>${rows}</table>`
+  );
 }
 
 function notifyPayoutSent(cycle, batchId, amountUsd) {
@@ -102,6 +172,11 @@ function notifyPayoutSent(cycle, batchId, amountUsd) {
       `Batch: ${batchId}`,
     ].join("\n")
   );
+
+  sendEmail(
+    `💳 PayPal Payout — $${amountUsd} to ${cycle.supplier_name}`,
+    `<h2>PayPal Payout Sent</h2><table border="1" cellpadding="6" style="border-collapse:collapse"><tr><td><b>Product</b></td><td>${cycle.product_name}</td></tr><tr><td><b>Supplier</b></td><td>${cycle.supplier_name}</td></tr><tr><td><b>Amount</b></td><td>$${amountUsd} USD (KES ${cycle.total_kes.toLocaleString()})</td></tr><tr><td><b>Quantity</b></td><td>${cycle.quantity} units</td></tr><tr><td><b>Batch ID</b></td><td><code>${batchId}</code></td></tr></table>`
+  );
 }
 
 function notifyInvoiceCreated(invoice, recipientName, totalKes) {
@@ -125,6 +200,11 @@ function notifyInvoiceCreated(invoice, recipientName, totalKes) {
       `Total: KES ${totalKes.toLocaleString()}`,
       `Due: ${invoice.due_date || "On delivery"}`,
     ].join("\n")
+  );
+
+  sendEmail(
+    `🧾 Invoice ${invoice.invoice_number} — KES ${totalKes.toLocaleString()}`,
+    `<h2>Invoice Generated</h2><table border="1" cellpadding="6" style="border-collapse:collapse"><tr><td><b>Invoice</b></td><td>${invoice.invoice_number}</td></tr><tr><td><b>Recipient</b></td><td>${recipientName}</td></tr><tr><td><b>Total</b></td><td>KES ${totalKes.toLocaleString()}</td></tr><tr><td><b>Due</b></td><td>${invoice.due_date || "On delivery"}</td></tr></table>`
   );
 }
 
@@ -154,6 +234,17 @@ function notifyCycleCreated(cycles) {
       `Approve in the StockAgent dashboard to send payment.`,
     ].join("\n")
   );
+
+  const rows = cycles
+    .map(
+      (c) =>
+        `<tr><td>${c.product_name}</td><td>${c.supplier_name}</td><td>${c.quantity} units</td><td>KES ${c.total_kes.toLocaleString()}</td></tr>`
+    )
+    .join("");
+  sendEmail(
+    `🔄 ${cycles.length} Reorder Cycle(s) Created — Awaiting Approval`,
+    `<h2>${cycles.length} Reorder Cycle(s) Created</h2><p>Awaiting approval to trigger PayPal payouts.</p><table border="1" cellpadding="6" style="border-collapse:collapse"><tr><th>Product</th><th>Supplier</th><th>Quantity</th><th>Total</th></tr>${rows}</table><p><b>Approve in the StockAgent dashboard to send payment.</b></p>`
+  );
 }
 
 module.exports = {
@@ -162,5 +253,6 @@ module.exports = {
   notifyInvoiceCreated,
   notifyCycleCreated,
   DISCORD_ENABLED: !!DISCORD_WEBHOOK,
-  WHATSAPP_ENABLED: !!(TWILIO_SID && TWILIO_TOKEN && WHATSAPP_TO),
+  WHATSAPP_ENABLED: !!((TWILIO_SID && TWILIO_TOKEN && WHATSAPP_TO) || (CALLMEBOT_APIKEY && WHATSAPP_TO)),
+  EMAIL_ENABLED: !!emailTransport,
 };

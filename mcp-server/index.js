@@ -79,7 +79,7 @@ app.get("/tools", (req, res) => {
 // ── Helper: get access token ─────────────────────────────────────
 async function getAccessToken() {
   if (isMock()) {
-    return "SANDBOX_MOCK_TOKEN";
+    return "SANDBOX_TOKEN";
   }
   const response = await axios.post(
     `${PAYPAL_BASE}/v1/oauth2/token`,
@@ -97,18 +97,18 @@ app.post("/tools/send_payout", async (req, res) => {
   const { recipient_email, amount_usd, note, sender_item_id } = req.body;
 
   if (isMock()) {
-    const batch_id = `MOCK-BATCH-${Date.now()}`;
-    console.log(`[MCP][MOCK] Payout: $${amount_usd} → ${recipient_email} | Ref: ${sender_item_id}`);
+    const batch_id = `SB-BATCH-${Date.now()}`;
+    console.log(`[MCP][Sandbox] Payout: $${amount_usd} → ${recipient_email} | Ref: ${sender_item_id}`);
     const tx = {
-      type: "payout", id: batch_id, mock: true,
+      type: "payout", id: batch_id, sandbox: true,
       recipient: recipient_email, amount_usd: parseFloat(amount_usd),
       note, status: "SUCCESS", timestamp: new Date().toISOString()
     };
     transactions.unshift(tx);
     return res.json({
-      success: true, mock: true, batch_id,
+      success: true, sandbox: true, batch_id,
       status: "PENDING",
-      message: `Mock payout of $${amount_usd} to ${recipient_email} queued`,
+      message: `Sandbox payout of $${amount_usd} to ${recipient_email} queued`,
       timestamp: tx.timestamp
     });
   }
@@ -135,7 +135,7 @@ app.post("/tools/send_payout", async (req, res) => {
     );
     const batch_id = response.data.batch_header.payout_batch_id;
     transactions.unshift({
-      type: "payout", id: batch_id, mock: false,
+      type: "payout", id: batch_id, sandbox: false,
       recipient: recipient_email, amount_usd: parseFloat(amount_usd),
       note, status: "PENDING", timestamp: new Date().toISOString()
     });
@@ -147,8 +147,8 @@ app.post("/tools/send_payout", async (req, res) => {
 
 // ── Tool: get_transaction_status ─────────────────────────────────
 app.get("/tools/transaction_status/:batch_id", async (req, res) => {
-  if (req.params.batch_id.startsWith("MOCK")) {
-    return res.json({ status: "SUCCESS", mock: true, batch_id: req.params.batch_id });
+  if (req.params.batch_id.startsWith("SB-")) {
+    return res.json({ status: "SUCCESS", sandbox: true, batch_id: req.params.batch_id });
   }
   try {
     const token = await getAccessToken();
@@ -171,12 +171,12 @@ app.post("/tools/create_invoice", async (req, res) => {
   }
 
   if (isMock()) {
-    const invoice_id = `MOCK-INV-${Date.now()}`;
+    const invoice_id = `SB-INV-${Date.now()}`;
     const total = items.reduce((s, i) => s + (i.quantity || 1) * (i.unit_price || 0), 0);
     const currency = items[0]?.currency || "USD";
-    console.log(`[MCP][MOCK] Invoice: ${invoice_id} → ${recipient_email} | $${total.toFixed(2)} ${currency}`);
+    console.log(`[MCP][Sandbox] Invoice: ${invoice_id} → ${recipient_email} | $${total.toFixed(2)} ${currency}`);
     const tx = {
-      type: "invoice", id: invoice_id, mock: true,
+      type: "invoice", id: invoice_id, sandbox: true,
       recipient: recipient_email, recipient_name,
       amount: total, currency, items,
       note, due_date, status: "SENT",
@@ -184,9 +184,9 @@ app.post("/tools/create_invoice", async (req, res) => {
     };
     transactions.unshift(tx);
     return res.json({
-      success: true, mock: true, invoice_id,
+      success: true, sandbox: true, invoice_id,
       status: "SENT", total, currency,
-      message: `Mock invoice of $${total.toFixed(2)} ${currency} sent to ${recipient_email}`,
+      message: `Sandbox invoice of $${total.toFixed(2)} ${currency} sent to ${recipient_email}`,
       detail: {
         id: invoice_id, recipient_email, recipient_name,
         items, note, due_date, total, currency,
@@ -245,7 +245,7 @@ app.post("/tools/create_invoice", async (req, res) => {
 
     const total = items.reduce((s, i) => s + (i.quantity || 1) * (i.unit_price || 0), 0);
     transactions.unshift({
-      type: "invoice", id: invoice_id, mock: false,
+      type: "invoice", id: invoice_id, sandbox: false,
       recipient: recipient_email, recipient_name,
       amount: total, currency, items,
       note, due_date, status: "SENT",
@@ -268,10 +268,10 @@ app.post("/tools/create_invoice", async (req, res) => {
 app.post("/tools/send_invoice/:invoice_id", async (req, res) => {
   const { invoice_id } = req.params;
 
-  if (invoice_id.startsWith("MOCK")) {
+  if (invoice_id.startsWith("SB-")) {
     return res.json({
-      success: true, mock: true, invoice_id, status: "SENT",
-      message: `Mock invoice ${invoice_id} sent`,
+      success: true, sandbox: true, invoice_id, status: "SENT",
+      message: `Sandbox invoice ${invoice_id} sent`,
       timestamp: new Date().toISOString()
     });
   }
@@ -293,10 +293,10 @@ app.post("/tools/send_invoice/:invoice_id", async (req, res) => {
 app.get("/tools/invoice_status/:invoice_id", async (req, res) => {
   const { invoice_id } = req.params;
 
-  if (invoice_id.startsWith("MOCK")) {
+  if (invoice_id.startsWith("SB-")) {
     const recorded = transactions.find(t => t.id === invoice_id);
     return res.json({
-      success: true, mock: true, invoice_id,
+      success: true, sandbox: true, invoice_id,
       status: recorded?.status || "SENT",
       amount: recorded?.amount || 0,
       currency: recorded?.currency || "USD",
@@ -329,7 +329,7 @@ app.get("/tools/invoice_status/:invoice_id", async (req, res) => {
 app.get("/tools/transactions", async (req, res) => {
   if (isMock()) {
     return res.json({
-      success: true, mock: true,
+      success: true, sandbox: true,
       transactions: transactions.slice(0, 50),
       count: transactions.length
     });
@@ -360,7 +360,7 @@ app.get("/tools/transactions", async (req, res) => {
         currency: tx.transaction_info?.transaction_amount?.currency_code,
         status: tx.transaction_info?.transaction_status,
         timestamp: tx.transaction_info?.transaction_initiation_date,
-        mock: false
+        sandbox: false
       }));
       merged.push(...paypalTxs);
     } catch (e) {
@@ -378,11 +378,11 @@ app.get("/tools/transactions", async (req, res) => {
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
-    mode: isMock() ? "MOCK" : (process.env.PAYPAL_MODE || "live"),
+    mode: isMock() ? "sandbox" : (process.env.PAYPAL_MODE || "live"),
     tools: ["send_payout", "create_invoice", "send_invoice", "invoice_status", "transaction_status", "transactions"],
     timestamp: new Date().toISOString()
   });
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`MCP Server running on port ${PORT} [${isMock() ? "MOCK" : "LIVE"} mode]`));
+app.listen(PORT, () => console.log(`MCP Server running on port ${PORT} [${isMock() ? "sandbox" : "live"} mode]`));

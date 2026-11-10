@@ -699,8 +699,8 @@ async function loadPaypal() {
 
     // Mode badge
     const modeEl = document.getElementById('pp-mode');
-    modeEl.textContent = health.mode === 'MOCK' ? 'Sandbox' : 'Live';
-    if (health.mode !== 'MOCK') { modeEl.style.background = '#14532d'; modeEl.style.color = '#86efac'; }
+    modeEl.textContent = health.mode === 'sandbox' ? 'Sandbox' : 'Live';
+    if (health.mode !== 'sandbox') { modeEl.style.background = '#14532d'; modeEl.style.color = '#86efac'; }
 
     const txs = txData.transactions || [];
     const payouts = txs.filter(t => t.type === 'payout');
@@ -723,7 +723,7 @@ async function loadPaypal() {
       status: t.status,
       note: t.note || '—',
       timestamp: t.timestamp,
-      mock: t.mock,
+      sandbox: t.sandbox,
       isPayout: t.type === 'payout'
     }));
     const gridPP = document.getElementById('grid-paypal');
@@ -935,7 +935,7 @@ fetch(`${API}/health`).then(r=>r.json()).then(d => {
 }).catch(()=>{});
 fetch(`${MCP_BASE}/health`).then(r=>r.json()).then(d=>{
   const b = document.getElementById('mode-badge');
-  const live = d.mode !== 'MOCK';
+  const live = d.mode !== 'sandbox';
   b.textContent += live ? ' · PayPal Live' : ' · PayPal Sandbox';
 }).catch(()=>{});
 
