@@ -309,8 +309,13 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const API = window.location.port === '3002' ? 'http://localhost:3000' : '';
-const MCP_BASE = window.location.port === '3002' ? 'http://localhost:3001' : window.location.origin.replace(':3000', ':3001');
+let API = window.location.port === '3002' ? 'http://localhost:3000' : '';
+let MCP_BASE = window.location.port === '3002' ? 'http://localhost:3001' : window.location.origin.replace(':3000', ':3001');
+
+const _configReady = fetch('/config').then(r=>r.json()).then(c=>{
+  if(c.apiUrl) API = c.apiUrl;
+  if(c.mcpUrl) MCP_BASE = c.mcpUrl;
+}).catch(()=>{});
 let currentInvoiceId = null;
 
 // ── Navigation ───────────────────────────────────────────────────
@@ -925,23 +930,25 @@ function downloadPDF(invoiceId) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────
-fetch(`${API}/health`).then(r=>r.json()).then(d => {
-  const b = document.getElementById('mode-badge');
-  const isAI = d.ai === 'claude';
-  b.textContent = isAI ? `AI Agent Active` : 'Demo Mode';
-  b.style.background = isAI ? '#14532d' : '#1e3a5f';
-  b.style.color = isAI ? '#86efac' : '#93c5fd';
-  document.getElementById('ai-model').textContent = isAI ? `Claude ${d.model}` : 'Rule-based Engine';
-}).catch(()=>{});
-fetch(`${MCP_BASE}/health`).then(r=>r.json()).then(d=>{
-  const b = document.getElementById('mode-badge');
-  const live = d.mode !== 'sandbox';
-  b.textContent += live ? ' · PayPal Live' : ' · PayPal Sandbox';
-}).catch(()=>{});
+_configReady.then(() => {
+  fetch(`${API}/health`).then(r=>r.json()).then(d => {
+    const b = document.getElementById('mode-badge');
+    const isAI = d.ai === 'claude';
+    b.textContent = isAI ? `AI Agent Active` : 'Demo Mode';
+    b.style.background = isAI ? '#14532d' : '#1e3a5f';
+    b.style.color = isAI ? '#86efac' : '#93c5fd';
+    document.getElementById('ai-model').textContent = isAI ? `Claude ${d.model}` : 'Rule-based Engine';
+  }).catch(()=>{});
+  fetch(`${MCP_BASE}/health`).then(r=>r.json()).then(d=>{
+    const b = document.getElementById('mode-badge');
+    const live = d.mode !== 'sandbox';
+    b.textContent += live ? ' · PayPal Live' : ' · PayPal Sandbox';
+  }).catch(()=>{});
 
-loadDashboard();
-loadAgentLogs();
-setInterval(loadDashboard, 20000);
+  loadDashboard();
+  loadAgentLogs();
+  setInterval(loadDashboard, 20000);
+});
 setInterval(loadAgentLogs, 10000);
 </script>
 </body>

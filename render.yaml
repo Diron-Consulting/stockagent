@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: stockagent-mcp
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: mcp-server
+    buildCommand: npm ci --production
+    startCommand: node index.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PAYPAL_CLIENT_ID
+        value: sandbox_placeholder
+      - key: PAYPAL_CLIENT_SECRET
+        value: sandbox_placeholder
+      - key: PAYPAL_MODE
+        value: sandbox
+
+  - type: web
+    name: stockagent-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/api
+    buildCommand: npm ci --production
+    startCommand: node index.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: MCP_SERVER_URL
+        fromService:
+          name: stockagent-mcp
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_APP_PASSWORD
+        sync: false
+      - key: EMAIL_TO
+        sync: false
+
+  - type: web
+    name: stockagent-frontend
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/frontend
+    buildCommand: npm ci --production
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: API_URL
+        fromService:
+          name: stockagent-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: MCP_URL
+        fromService:
+          name: stockagent-mcp
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
