@@ -4,7 +4,9 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>StockAgent — Diron Technologies</title>
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@33/dist/ag-grid-community.min.js"></script>
   <style>
+    .ag-theme-alpine-dark{--ag-background-color:#1a1d2e;--ag-header-background-color:#151827;--ag-odd-row-background-color:#1e2433;--ag-row-hover-color:#252d3d;--ag-border-color:#2d3748;--ag-foreground-color:#e2e8f0;--ag-header-foreground-color:#94a3b8;--ag-font-size:12px;--ag-row-height:40px;--ag-header-height:36px;border-radius:8px;overflow:hidden}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
     header{background:#1a1d2e;border-bottom:1px solid #2d3748;padding:14px 28px;display:flex;align-items:center;gap:10px}
@@ -112,6 +114,7 @@
   <div class="nav-tab" onclick="nav('dispatch',this)">Dispatch</div>
   <div class="nav-tab" onclick="nav('invoices',this)">Invoices</div>
   <div class="nav-tab" onclick="nav('cycles',this)">Reorder Cycles</div>
+  <div class="nav-tab" onclick="nav('paypal',this)" style="color:#0070ba">PayPal</div>
 </nav>
 
 <div class="container">
@@ -136,9 +139,8 @@
     <div class="grid-dash">
       <div>
         <div class="card full">
-          <h2>Inventory — Stock Levels</h2>
-          <table><thead><tr><th>SKU</th><th>Product</th><th>Stock</th><th>Threshold</th><th>Status</th><th>Preferred Supplier</th><th>Action</th></tr></thead>
-          <tbody id="tbl-products"></tbody></table>
+          <h2>Inventory — Stock Levels <span style="font-size:9px;color:#64748b;font-weight:400;margin-left:8px">Powered by AG Grid</span></h2>
+          <div id="grid-products" class="ag-theme-alpine-dark" style="height:280px;width:100%"></div>
         </div>
       </div>
       <div class="ai-panel">
@@ -228,6 +230,29 @@
     </div>
   </div>
 
+  <!-- ═══════════════ PAYPAL TRANSACTIONS ═══════════════ -->
+  <div id="tab-paypal" class="section">
+    <div class="grid4" style="margin-bottom:20px">
+      <div class="card"><h2>PayPal Payouts</h2><div class="stat-num" id="pp-payouts">—</div><div class="stat-sub">supplier payments sent</div></div>
+      <div class="card"><h2>PayPal Invoices</h2><div class="stat-num" id="pp-invoices">—</div><div class="stat-sub">recipient invoices sent</div></div>
+      <div class="card"><h2>Total USD Out</h2><div class="stat-num" id="pp-total-out">—</div><div class="stat-sub">payouts to suppliers</div></div>
+      <div class="card"><h2>Total USD Invoiced</h2><div class="stat-num" id="pp-total-inv">—</div><div class="stat-sub">billed to recipients</div></div>
+    </div>
+    <div class="card full" style="border-color:#0070ba44">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M19.5 8.5h-3c-.7-2.3-2.8-4-5.3-4H7.5C5 4.5 3 6.7 3 9.3v.5c0 2.6 2 4.7 4.5 4.7h1.2c-.1.5-.2 1-.2 1.5 0 2.5 2 4.5 4.5 4.5h2.5c2.5 0 4.5-2 4.5-4.5v-.5c1.2-.5 2-1.7 2-3.2C22 10.5 21 9 19.5 8.5z" fill="#0070ba"/></svg>
+        <h2 style="margin-bottom:0">PayPal API Transactions</h2>
+        <span id="pp-mode" style="margin-left:auto;font-size:11px;padding:3px 8px;border-radius:4px;background:#78350f;color:#fcd34d">MOCK</span>
+      </div>
+      <div id="grid-paypal" class="ag-theme-alpine-dark" style="height:300px;width:100%"></div>
+    </div>
+    <div class="card full" style="margin-top:16px;background:#0d1117;border-color:#0070ba22">
+      <h2 style="color:#0070ba">MCP Server — PayPal API Calls</h2>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">These are the raw API calls made through the MCP (Model Context Protocol) server to PayPal's REST APIs</div>
+      <div class="log" id="paypal-log" style="max-height:250px"><div class="log-line log-info">[MCP] Connected to PayPal MCP Server</div></div>
+    </div>
+  </div>
+
 </div><!-- /container -->
 
 <!-- ═══ INVOICE MODAL ═══ -->
@@ -293,7 +318,7 @@ function nav(name, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
-  ({ dashboard: loadDashboard, recipients: loadRecipients, dispatch: loadDispatch, invoices: loadInvoices, cycles: loadCycles })[name]?.();
+  ({ dashboard: loadDashboard, recipients: loadRecipients, dispatch: loadDispatch, invoices: loadInvoices, cycles: loadCycles, paypal: loadPaypal })[name]?.();
 }
 
 // ── Toast ─────────────────────────────────────────────────────────
@@ -352,16 +377,39 @@ async function loadDashboard() {
   document.getElementById('s-recipients').textContent = recipients.length;
   document.getElementById('s-unpaid').textContent = invoices.filter(i=>i.status==='unpaid').length;
 
-  document.getElementById('tbl-products').innerHTML = products.map(p => `
-    <tr>
-      <td style="font-family:monospace;color:#64748b;font-size:11px">${p.sku}</td>
-      <td>${p.name}</td>
-      <td><strong>${p.current_stock}</strong> <span style="color:#64748b">${p.unit}s</span></td>
-      <td>${p.reorder_threshold}</td>
-      <td>${stockPill(p.current_stock, p.reorder_threshold)}</td>
-      <td>${p.supplier_name||'—'}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="quickDispatch(${p.id},'${p.name}',${p.unit_price_kes})">Dispatch</button></td>
-    </tr>`).join('');
+  // AG Grid — Products
+  const productRows = products.map(p => ({
+    sku: p.sku, name: p.name, stock: p.current_stock, unit: p.unit,
+    threshold: p.reorder_threshold, supplier: p.supplier_name || '—',
+    status: p.current_stock <= p.reorder_threshold * 0.3 ? 'Critical' : p.current_stock <= p.reorder_threshold ? 'Low' : 'OK',
+    pct: Math.min(100, Math.round(p.current_stock / p.reorder_threshold * 100)),
+    id: p.id, price: p.unit_price_kes
+  }));
+  const gridEl = document.getElementById('grid-products');
+  if (window.productsGrid) {
+    window.productsGrid.setGridOption('rowData', productRows);
+  } else {
+    window.productsGrid = agGrid.createGrid(gridEl, {
+      rowData: productRows,
+      defaultColDef: { sortable: true, filter: true, resizable: true },
+      columnDefs: [
+        { field: 'sku', headerName: 'SKU', width: 120, cellStyle: { fontFamily: 'monospace', color: '#64748b', fontSize: '11px' } },
+        { field: 'name', headerName: 'Product', flex: 1 },
+        { field: 'stock', headerName: 'Stock', width: 90, cellRenderer: p => `<strong>${p.value}</strong> <span style="color:#64748b">${p.data.unit}s</span>` },
+        { field: 'threshold', headerName: 'Threshold', width: 95 },
+        { field: 'status', headerName: 'Status', width: 130, cellRenderer: p => {
+          const cls = p.value === 'Critical' ? 'critical' : p.value === 'Low' ? 'low' : 'ok';
+          const color = p.value === 'Critical' ? '#ef4444' : p.value === 'Low' ? '#f59e0b' : '#22c55e';
+          return `<span class="pill pill-${cls}">${p.value}</span> <span class="bar-wrap"><span class="bar-fill" style="width:${p.data.pct}%;background:${color}"></span></span>`;
+        }},
+        { field: 'supplier', headerName: 'Supplier', width: 140 },
+        { headerName: '', width: 90, cellRenderer: p => `<button class="btn btn-ghost btn-sm" onclick="quickDispatch(${p.data.id},'${p.data.name}',${p.data.price})">Dispatch</button>`, sortable: false, filter: false }
+      ],
+      animateRows: true,
+      rowSelection: 'single',
+      domLayout: 'normal',
+    });
+  }
 }
 
 async function agentScan() {
@@ -623,16 +671,106 @@ async function loadCycles() {
 
 async function approveCycle(id) {
   log(`Approving cycle #${id}...`);
+  aiAddStep('active', 'PayPal Payout', `Sending supplier payment for cycle #${id}...`, 'POST /v1/payments/payouts → PayPal Sandbox');
   const data = await fetch(`${API}/api/cycles/${id}/approve`,{method:'POST'}).then(r=>r.json());
+  aiMarkLastDone();
   if (data.success) {
     toast(data.message);
     log(data.message, 'ok');
     log(`PayPal Batch: ${data.paypal?.batch_id}`, 'info');
+    aiAddStep('done', 'PayPal', `Payout complete: ${data.paypal?.batch_id}`, data.message);
   } else {
     toast(data.error, 'err');
     log('Error: ' + data.error, 'warn');
+    aiAddStep('error', 'PayPal', `Payout failed: ${data.error}`);
   }
   loadCycles();
+}
+
+// ── PAYPAL TRANSACTIONS ──────────────────────────────────────────
+const MCP = 'http://localhost:3001';
+async function loadPaypal() {
+  try {
+    const [health, txData] = await Promise.all([
+      fetch(`${MCP}/health`).then(r=>r.json()),
+      fetch(`${MCP}/tools/transactions`).then(r=>r.json()),
+    ]);
+
+    // Mode badge
+    const modeEl = document.getElementById('pp-mode');
+    modeEl.textContent = health.mode;
+    if (health.mode !== 'MOCK') { modeEl.style.background = '#14532d'; modeEl.style.color = '#86efac'; }
+
+    const txs = txData.transactions || [];
+    const payouts = txs.filter(t => t.type === 'payout');
+    const invoices = txs.filter(t => t.type === 'invoice');
+    const totalOut = payouts.reduce((s,t) => s + (t.amount_usd || 0), 0);
+    const totalInv = invoices.reduce((s,t) => s + (t.amount || 0), 0);
+
+    document.getElementById('pp-payouts').textContent = payouts.length;
+    document.getElementById('pp-invoices').textContent = invoices.length;
+    document.getElementById('pp-total-out').textContent = '$' + totalOut.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+    document.getElementById('pp-total-inv').textContent = '$' + totalInv.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+    // AG Grid — PayPal Transactions
+    const ppRows = txs.map(t => ({
+      type: t.type === 'payout' ? 'PAYOUT' : 'INVOICE',
+      id: t.id,
+      recipient: t.recipient || '—',
+      amount: t.type === 'payout' ? (t.amount_usd||0) : (t.amount||0),
+      currency: t.currency || 'USD',
+      status: t.status,
+      note: t.note || '—',
+      timestamp: t.timestamp,
+      mock: t.mock,
+      isPayout: t.type === 'payout'
+    }));
+    const gridPP = document.getElementById('grid-paypal');
+    if (window.paypalGrid) {
+      window.paypalGrid.setGridOption('rowData', ppRows);
+    } else {
+      window.paypalGrid = agGrid.createGrid(gridPP, {
+        rowData: ppRows,
+        defaultColDef: { sortable: true, filter: true, resizable: true },
+        columnDefs: [
+          { field: 'type', headerName: 'Type', width: 110, cellRenderer: p => {
+            const bg = p.data.isPayout ? '#1e3a5f' : '#14532d';
+            const color = p.data.isPayout ? '#60a5fa' : '#86efac';
+            return `<span class="pill" style="background:${bg};color:${color}">${p.value}</span>`;
+          }},
+          { field: 'id', headerName: 'Transaction ID', flex: 1, cellStyle: { fontFamily: 'monospace', fontSize: '11px', color: '#94a3b8' } },
+          { field: 'recipient', headerName: 'Recipient', width: 200 },
+          { field: 'amount', headerName: 'Amount', width: 120, cellRenderer: p => `<span style="font-weight:600;color:${p.data.isPayout?'#f59e0b':'#4ade80'}">$${p.value.toFixed(2)}</span>`, comparator: (a,b) => a - b },
+          { field: 'status', headerName: 'Status', width: 100, cellRenderer: p => `<span class="pill pill-${p.value==='SUCCESS'||p.value==='SENT'?'ok':'pending'}">${p.value}</span>` },
+          { field: 'note', headerName: 'Note', width: 200, cellStyle: { fontSize: '11px', color: '#94a3b8' } },
+          { field: 'timestamp', headerName: 'Time', width: 160, cellRenderer: p => `<span style="font-size:11px;color:#64748b">${new Date(p.value).toLocaleString()}</span>`, comparator: (a,b) => new Date(a) - new Date(b) },
+        ],
+        animateRows: true,
+        domLayout: 'normal',
+        overlayNoRowsTemplate: '<span style="padding:20px;color:#64748b">No PayPal transactions yet. Run Agent Scan → Approve a cycle, or send an invoice.</span>',
+      });
+    }
+
+    // MCP API call log
+    const logEl = document.getElementById('paypal-log');
+    logEl.innerHTML = '';
+    txs.forEach(t => {
+      const isPayout = t.type === 'payout';
+      const line = document.createElement('div');
+      line.className = `log-line ${isPayout ? 'log-warn' : 'log-ok'}`;
+      if (isPayout) {
+        line.textContent = `[${new Date(t.timestamp).toLocaleTimeString()}] POST /v1/payments/payouts → ${t.mock?'MOCK':'LIVE'} | $${(t.amount_usd||0).toFixed(2)} → ${t.recipient} | Batch: ${t.id}`;
+      } else {
+        line.textContent = `[${new Date(t.timestamp).toLocaleTimeString()}] POST /v2/invoicing/invoices → ${t.mock?'MOCK':'LIVE'} | $${(t.amount||0).toFixed(2)} → ${t.recipient} | Invoice: ${t.id}`;
+      }
+      logEl.appendChild(line);
+    });
+    if (txs.length === 0) {
+      logEl.innerHTML = '<div class="log-line log-info">[MCP] No API calls recorded. PayPal MCP Server ready.</div>';
+    }
+  } catch(e) {
+    document.getElementById('tbl-paypal').innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:#ef4444">Cannot connect to MCP Server at ${MCP}. Is it running?</td></tr>`;
+  }
 }
 
 // ── AI PANEL HELPERS ─────────────────────────────────────────────

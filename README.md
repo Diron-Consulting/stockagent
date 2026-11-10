@@ -70,6 +70,7 @@ One click from the business owner. Everything else is automated.
 | Agent Interface | MCP Server (Model Context Protocol) |
 | Invoice Generation | PDFKit (professional PDF export) |
 | Frontend | Vanilla JS SPA (dark theme, real-time agent panel) |
+| Data Grids | AG Grid (sortable, filterable tables) |
 
 ## Features
 
@@ -121,6 +122,19 @@ The system works fully in mock mode (no API keys needed). Set `ANTHROPIC_API_KEY
 - Best Use of PayPal + AI
 
 **PayPal AI Hackathon — Build What's Next — Deadline: November 12, 2026**
+
+## API Documentation
+
+A full Postman collection with 26 requests across 7 folders is available at [`docs/StockAgent.postman_collection.json`](docs/StockAgent.postman_collection.json). Import it into Postman to explore and test all endpoints.
+
+For details on PayPal API integration, see [`docs/PAYPAL_INTEGRATION.md`](docs/PAYPAL_INTEGRATION.md).
+
+## Sponsor Tools Used
+
+| Sponsor | Integration |
+|---|---|
+| **AG Grid** | Enterprise-quality data grids for inventory, invoices, and PayPal transaction tables |
+| **Postman** | Full API collection (26 endpoints) for testing and documentation |
 
 ## What Makes StockAgent Different
 

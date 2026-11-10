@@ -1,0 +1,320 @@
+{
+	"info": {
+		"_postman_id": "stockagent-2026",
+		"name": "StockAgent — Agentic Commerce for FMCG",
+		"description": "Full API collection for StockAgent by Diron Technologies.\n\n**API Server** (localhost:3000): Express + SQLite backend with AI-powered supply chain agents.\n**MCP Server** (localhost:3001): PayPal API wrapper (Payouts + Invoicing) using Model Context Protocol.\n\nSet `ANTHROPIC_API_KEY` for real AI mode, or leave blank for rule-based mock.\nSet `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` for live PayPal sandbox, or leave blank for mock mode.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "api_url", "value": "http://localhost:3000" },
+		{ "key": "mcp_url", "value": "http://localhost:3001" }
+	],
+	"item": [
+		{
+			"name": "Products",
+			"description": "Inventory management — list products, dispatch stock",
+			"item": [
+				{
+					"name": "List Products",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/products", "host": ["{{api_url}}"], "path": ["api", "products"] },
+						"description": "Returns all products sorted by stock-to-threshold ratio (most critical first). Each product includes current_stock, reorder_threshold, and preferred supplier."
+					}
+				},
+				{
+					"name": "Dispatch Product",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"quantity\": 10,\n  \"recipient_id\": 1,\n  \"unit_price_kes\": 3400\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{api_url}}/api/products/1/dispatch", "host": ["{{api_url}}"], "path": ["api", "products", "1", "dispatch"] },
+						"description": "Dispatch stock of a product. Reduces current_stock and creates a dispatch record.\n\nIf stock drops below reorder_threshold, an AI agent scan is auto-triggered to create reorder cycles."
+					}
+				}
+			]
+		},
+		{
+			"name": "Recipients",
+			"description": "Manage dukas, supermarkets, schools, and wholesale outlets",
+			"item": [
+				{
+					"name": "List Recipients",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/recipients", "host": ["{{api_url}}"], "path": ["api", "recipients"] },
+						"description": "Returns all active recipients with dispatch stats, top product, and unpaid invoice totals."
+					}
+				},
+				{
+					"name": "Get Recipient Detail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/recipients/1", "host": ["{{api_url}}"], "path": ["api", "recipients", "1"] },
+						"description": "Full recipient profile with recent dispatches, invoices, and summary stats."
+					}
+				},
+				{
+					"name": "Add Recipient",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Nakuru Fresh Mart\",\n  \"type\": \"supermarket\",\n  \"contact_name\": \"Grace Wanjiku\",\n  \"phone\": \"+254722000123\",\n  \"email\": \"orders@nakurufresh.co.ke\",\n  \"location\": \"Kenyatta Avenue, Nakuru\",\n  \"color\": \"#8b5cf6\",\n  \"payment_terms\": \"net-14\",\n  \"stocking_frequency\": \"twice-weekly\",\n  \"credit_limit_kes\": 100000\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{api_url}}/api/recipients", "host": ["{{api_url}}"], "path": ["api", "recipients"] },
+						"description": "Add a new recipient. Types: duka, supermarket, school, wholesale. Payment terms: cash, net-7, net-14, net-30."
+					}
+				}
+			]
+		},
+		{
+			"name": "Invoices",
+			"description": "Generate, view, and send invoices via PayPal",
+			"item": [
+				{
+					"name": "List Invoices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/invoices", "host": ["{{api_url}}"], "path": ["api", "invoices"] },
+						"description": "Returns all invoices with recipient name, type, status (unpaid/paid), and totals in KES."
+					}
+				},
+				{
+					"name": "Get Invoice Detail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/invoices/1", "host": ["{{api_url}}"], "path": ["api", "invoices", "1"] },
+						"description": "Full invoice with line items (product, SKU, quantity, unit price, total) and recipient contact details."
+					}
+				},
+				{
+					"name": "Generate Invoice for Recipient",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{api_url}}/api/invoices/generate/1", "host": ["{{api_url}}"], "path": ["api", "invoices", "generate", "1"] },
+						"description": "Generate an invoice for all unbilled dispatches to recipient ID 1 (Westlands Supermarket). Due date calculated from recipient's payment terms."
+					}
+				},
+				{
+					"name": "Mark Invoice as Paid",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/invoices/1/mark-paid", "host": ["{{api_url}}"], "path": ["api", "invoices", "1", "mark-paid"] },
+						"description": "Mark an invoice as paid. Sets status to 'paid' and records paid_at timestamp."
+					}
+				},
+				{
+					"name": "Send Invoice via PayPal",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/invoices/1/send-paypal", "host": ["{{api_url}}"], "path": ["api", "invoices", "1", "send-paypal"] },
+						"description": "Send an invoice to the recipient via PayPal Invoicing API (POST /v2/invoicing/invoices + /send). Converts KES amounts to USD at rate 130. Returns PayPal invoice ID and sandbox view URL."
+					}
+				},
+				{
+					"name": "Download Invoice PDF",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/invoices/1/pdf", "host": ["{{api_url}}"], "path": ["api", "invoices", "1", "pdf"] },
+						"description": "Download a professional PDF invoice generated with PDFKit. Includes company branding, line items, totals, and payment terms."
+					}
+				}
+			]
+		},
+		{
+			"name": "Reorder Cycles",
+			"description": "AI-created reorder cycles — approve to trigger PayPal payouts",
+			"item": [
+				{
+					"name": "List Reorder Cycles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/cycles", "host": ["{{api_url}}"], "path": ["api", "cycles"] },
+						"description": "Returns all reorder cycles with product, supplier, quantity, total KES, status (pending/paid), and PayPal transaction ID."
+					}
+				},
+				{
+					"name": "Approve Cycle (PayPal Payout)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/cycles/1/approve", "host": ["{{api_url}}"], "path": ["api", "cycles", "1", "approve"] },
+						"description": "Approve a pending reorder cycle. Triggers a PayPal Payout (POST /v1/payments/payouts) to the supplier's email. On success: cycle marked 'paid', stock restocked, PayPal batch ID recorded."
+					}
+				}
+			]
+		},
+		{
+			"name": "AI Agent",
+			"description": "AI-powered supply chain analysis and autonomous operations",
+			"item": [
+				{
+					"name": "Run Agent Scan",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/agent/scan", "host": ["{{api_url}}"], "path": ["api", "agent", "scan"] },
+						"description": "Trigger the primary AI agent. Uses Claude Haiku 5.5 (or rule-based mock if no API key).\n\nThe agent:\n1. Gathers inventory snapshot (products, suppliers, pending cycles, 7-day dispatch velocity)\n2. Analyzes stock levels vs thresholds\n3. Recommends reorder actions with reasoning\n4. Checks compliance (no duplicate pending orders)\n5. Creates reorder cycles for approved recommendations\n\nReturns: analysis, recommendations, created cycles, skipped items, and AI mode (ai/mock)."
+					}
+				},
+				{
+					"name": "Get Agent Logs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{api_url}}/api/agent/logs?limit=50",
+							"host": ["{{api_url}}"],
+							"path": ["api", "agent", "logs"],
+							"query": [{ "key": "limit", "value": "50" }]
+						},
+						"description": "Returns timestamped agent activity logs. Each entry has: step (scan_start, ai_call, cycle_created, compliance_skip, etc.), message, and optional JSON data."
+					}
+				},
+				{
+					"name": "Run Full Demo",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/agent/demo", "host": ["{{api_url}}"], "path": ["api", "agent", "demo"] },
+						"description": "Execute a full autonomous commerce cycle in one call:\n\n1. Dispatch enough stock to trigger a critical level\n2. AI agent scans and creates reorder cycle\n3. Auto-approve cycle → PayPal Payout to supplier\n4. Stock restocked\n5. Invoice generated for the dispatch recipient\n\nReturns step-by-step results with PayPal batch IDs and invoice numbers."
+					}
+				}
+			]
+		},
+		{
+			"name": "Analytics",
+			"description": "Recipient stocking analytics and dispatch summaries",
+			"item": [
+				{
+					"name": "Recipient Analytics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/api/analytics/recipients", "host": ["{{api_url}}"], "path": ["api", "analytics", "recipients"] },
+						"description": "Returns dispatch analytics per recipient: dispatch count, total KES, total units, first/last dispatch dates. Sorted by total value descending."
+					}
+				},
+				{
+					"name": "API Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{api_url}}/health", "host": ["{{api_url}}"], "path": ["health"] },
+						"description": "Returns API status, database type (sqlite), AI mode (claude/mock), model name, and timestamp."
+					}
+				}
+			]
+		},
+		{
+			"name": "MCP PayPal",
+			"description": "MCP Server — PayPal API wrapper for AI agent tool use",
+			"item": [
+				{
+					"name": "MCP Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{mcp_url}}/health", "host": ["{{mcp_url}}"], "path": ["health"] },
+						"description": "MCP Server health check. Returns mode (MOCK/LIVE/sandbox) and available tools list."
+					}
+				},
+				{
+					"name": "List Available Tools",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{mcp_url}}/tools", "host": ["{{mcp_url}}"], "path": ["tools"] },
+						"description": "List all MCP tools available for AI agent use: send_payout, create_invoice, send_invoice, invoice_status, transaction_status, transactions."
+					}
+				},
+				{
+					"name": "Send Payout (PayPal /v1/payments/payouts)",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"recipient_email\": \"payments@unga.co.ke\",\n  \"amount_usd\": 2461.54,\n  \"note\": \"StockAgent reorder: Unga Maize Flour 50kg x100\",\n  \"sender_item_id\": \"STOCKAGENT-1-1234567890\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{mcp_url}}/tools/send_payout", "host": ["{{mcp_url}}"], "path": ["tools", "send_payout"] },
+						"description": "Send a PayPal Payout to a supplier. Wraps POST /v1/payments/payouts.\n\nIn MOCK mode: returns fake batch ID. In LIVE/sandbox mode: authenticates with PayPal OAuth2 and sends a real payout."
+					}
+				},
+				{
+					"name": "Create Invoice (PayPal /v2/invoicing/invoices)",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"recipient_email\": \"orders@westlands.co.ke\",\n  \"recipient_name\": \"Westlands Supermarket\",\n  \"items\": [\n    {\n      \"name\": \"Unga Maize Flour 50kg\",\n      \"quantity\": 10,\n      \"unit_price\": 26.15,\n      \"currency\": \"USD\"\n    },\n    {\n      \"name\": \"Bidco Cooking Oil 20L\",\n      \"quantity\": 5,\n      \"unit_price\": 34.62,\n      \"currency\": \"USD\"\n    }\n  ],\n  \"note\": \"Invoice from Mama Pima Distributors via StockAgent\",\n  \"due_date\": \"2026-12-10\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{mcp_url}}/tools/create_invoice", "host": ["{{mcp_url}}"], "path": ["tools", "create_invoice"] },
+						"description": "Create and auto-send a PayPal Invoice. Wraps POST /v2/invoicing/invoices + POST /v2/invoicing/invoices/{id}/send.\n\nIn MOCK mode: returns fake invoice ID with sandbox view URL. In LIVE mode: creates and sends a real PayPal invoice."
+					}
+				},
+				{
+					"name": "Send Existing Invoice",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{mcp_url}}/tools/send_invoice/MOCK-INV-123", "host": ["{{mcp_url}}"], "path": ["tools", "send_invoice", "MOCK-INV-123"] },
+						"description": "Send an existing draft invoice by ID. Wraps POST /v2/invoicing/invoices/{id}/send."
+					}
+				},
+				{
+					"name": "Check Invoice Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{mcp_url}}/tools/invoice_status/MOCK-INV-123", "host": ["{{mcp_url}}"], "path": ["tools", "invoice_status", "MOCK-INV-123"] },
+						"description": "Check the payment status of a PayPal invoice."
+					}
+				},
+				{
+					"name": "Check Payout Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{mcp_url}}/tools/transaction_status/MOCK-BATCH-123", "host": ["{{mcp_url}}"], "path": ["tools", "transaction_status", "MOCK-BATCH-123"] },
+						"description": "Check the status of a PayPal payout batch. Wraps GET /v1/payments/payouts/{batch_id}."
+					}
+				},
+				{
+					"name": "List All Transactions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{mcp_url}}/tools/transactions", "host": ["{{mcp_url}}"], "path": ["tools", "transactions"] },
+						"description": "List all PayPal transactions (payouts and invoices) processed through the MCP server. Includes type, ID, recipient, amount, status, and timestamp."
+					}
+				}
+			]
+		}
+	]
+}
