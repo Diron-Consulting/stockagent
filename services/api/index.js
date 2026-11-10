@@ -7,6 +7,7 @@ const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 
 const { router: invoicePdfRouter } = require("./invoice-pdf");
+const { notifyStockAlert, notifyPayoutSent, notifyInvoiceCreated, notifyCycleCreated, DISCORD_ENABLED, WHATSAPP_ENABLED } = require("./notifications");
 
 const app = express();
 app.use(cors());
@@ -389,6 +390,9 @@ async function runPrimaryAgent() {
   const summary = `${cycles.length} reorder cycle(s) created. ${skipped.length} skipped (compliance).`;
   agentLog("scan_complete", summary, { cycles_created: cycles.length, skipped: skipped.length });
 
+  notifyStockAlert(aiResult.analysis, aiResult.recommendations || []);
+  notifyCycleCreated(cycles);
+
   return {
     message: summary,
     analysis: aiResult.analysis,
@@ -525,6 +529,7 @@ app.post("/api/invoices/generate/:recipient_id", (req, res) => {
 
   const fullInvoice = db.prepare("SELECT * FROM invoices WHERE id=?").get(invoiceId);
   const items = db.prepare(`SELECT ii.*,p.name as product_name,p.sku,p.unit FROM invoice_items ii JOIN products p ON p.id=ii.product_id WHERE ii.invoice_id=?`).all(invoiceId);
+  notifyInvoiceCreated(fullInvoice, recipient.name, total_kes);
   res.json({ invoice: fullInvoice, items, recipient, total_kes });
 });
 
@@ -748,6 +753,7 @@ app.post("/api/cycles/:id/approve", async (req, res) => {
     db.prepare("UPDATE products SET current_stock=current_stock+? WHERE id=?").run(cycle.quantity, cycle.product_id);
     db.prepare("INSERT INTO stock_events (product_id,event_type,quantity,note) VALUES (?,?,?,?)").run(cycle.product_id, "restock", cycle.quantity, `PayPal: ${payoutRes.data.batch_id}`);
     agentLog("cycle_approved", `Cycle #${cycle.id} approved — $${amount_usd} sent to ${cycle.supplier_name}`, { batch_id: payoutRes.data.batch_id });
+    notifyPayoutSent(cycle, payoutRes.data.batch_id, amount_usd);
     res.json({ success: true, message: `Payment of $${amount_usd} (KES ${cycle.total_kes}) sent to ${cycle.supplier_name}`, paypal: payoutRes.data });
   } catch (err) {
     res.status(500).json({ error: err.message });

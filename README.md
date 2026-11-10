@@ -136,6 +136,22 @@ For details on PayPal API integration, see [`docs/PAYPAL_INTEGRATION.md`](docs/P
 | **AG Grid** | Enterprise-quality data grids for inventory, invoices, and PayPal transaction tables |
 | **Postman** | Full API collection (26 endpoints) for testing and documentation |
 
+## Notifications
+
+StockAgent sends real-time alerts to **Discord** and **WhatsApp** when key events happen:
+
+| Event | Discord | WhatsApp |
+|---|---|---|
+| Stock below threshold | Red/yellow embed with product list | Text alert with severity |
+| Reorder cycles created | Purple embed with cycle details | Text with approval prompt |
+| PayPal payout sent | Blue embed with batch ID + amount | Text with supplier + USD amount |
+| Invoice generated | Green embed with invoice number | Text with recipient + KES total |
+
+**Discord** — paste a webhook URL into `DISCORD_WEBHOOK_URL`. Free, no auth needed.
+**WhatsApp** — uses Twilio API. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `WHATSAPP_NOTIFY_NUMBER`. Works with the free Twilio sandbox (`whatsapp:+14155238886`).
+
+Both channels are optional — leave the env vars blank and notifications are silently skipped.
+
 ## What Makes StockAgent Different
 
 Most supply chain AI tools stop at recommendations. StockAgent closes the loop — from AI insight to PayPal payment execution — in a single autonomous flow. The agent doesn't just tell you what to reorder; it orders, pays, and invoices.
