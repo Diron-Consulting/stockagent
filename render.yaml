@@ -5,7 +5,7 @@ services:
     region: oregon
     plan: free
     rootDir: mcp-server
-    buildCommand: npm ci --production
+    buildCommand: npm install --production
     startCommand: node index.js
     envVars:
       - key: PORT
@@ -23,7 +23,7 @@ services:
     region: oregon
     plan: free
     rootDir: services/api
-    buildCommand: npm ci --production
+    buildCommand: npm install --production
     startCommand: node index.js
     envVars:
       - key: PORT
@@ -46,7 +46,7 @@ services:
     region: oregon
     plan: free
     rootDir: services/frontend
-    buildCommand: npm ci --production
+    buildCommand: npm install --production
     startCommand: node server.js
     envVars:
       - key: PORT

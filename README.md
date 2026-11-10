@@ -1,31 +1,27 @@
 # StockAgent
 
-> Agentic Commerce for FMCG Distributors — autonomous stock monitoring and supplier payments via PayPal.
+> **Agentic Commerce for FMCG Distributors** — AI-powered stock monitoring, autonomous supplier payments via PayPal, and real-time notifications.
+
+**Live Demo:** [stockagent-frontend-r0iq.onrender.com](https://stockagent-frontend-r0iq.onrender.com)
 
 ## The Problem
 
-FMCG distributors in East Africa manage hundreds of SKUs manually. Every reorder cycle involves someone checking stock levels, contacting a supplier, negotiating an order, and initiating a payment separately. It is slow, error-prone, and dependent on one person remembering to act.
+FMCG distributors in East Africa manage hundreds of SKUs manually. Every reorder cycle involves checking stock, contacting suppliers, placing orders, and initiating payments — separately. It's slow, error-prone, and depends on one person remembering to act.
 
 **StockAgent removes the human from the routine loop entirely.**
 
 ## How It Works
 
 ```
-1. Stock level drops below reorder threshold (dispatch triggers auto-scan)
-           ↓
-2. AI Agent (Claude Haiku 5.5) analyzes inventory + dispatch velocity
-           ↓
-3. Sub-agents handle: stock validation, supplier selection, compliance check
-           ↓
-4. Reorder cycle created with AI reasoning + cost breakdown
-           ↓
-5. Owner approves in-app (one click)
-           ↓
-6. MCP Server executes PayPal Payout to supplier
-           ↓
-7. Invoice generated (PDF + PayPal Invoicing API)
-           ↓
-8. Transaction logged, stock restocked, audit trail complete
+Dispatch triggers stock drop below threshold
+        ↓
+AI Agent analyzes inventory + dispatch velocity (3 sub-agents)
+        ↓
+Reorder cycle created with reasoning + cost breakdown
+        ↓
+Owner approves (one click) → PayPal Payout to supplier
+        ↓
+Invoice generated (PDF + PayPal Invoicing API) → Email notification sent
 ```
 
 One click from the business owner. Everything else is automated.
@@ -33,78 +29,110 @@ One click from the business owner. Everything else is automated.
 ## Architecture
 
 ```
-[INVENTORY DB — SQLite]
-        |
-[Express API — Stock events + dispatch triggers]
-        |
-[PRIMARY AGENT — Claude Haiku 5.5 via Anthropic SDK]
-        |
-   ┌────┴────────────────┐
-   ▼                     ▼                     ▼
-[Stock Sub-Agent]  [Order Sub-Agent]  [Compliance Sub-Agent]
-- Check levels     - Select supplier  - Validate supplier
-- Dispatch velocity- Calculate qty    - Prevent duplicates
-- Severity rating  - Draft reorder    - Flag risks
-   └────┬────────────────┘
-        |
-[Approval Gateway — Web UI]
-        |
-   Owner: "APPROVE"
-        |
-[MCP Server — PayPal API Wrapper]
-- Payouts API (supplier payments)
-- Invoicing API (recipient billing)
-- Transaction log + status tracking
-        |
-[PayPal Payment Executed + Invoice Sent]
+┌─────────────────────────────────────────────────────────────┐
+│                    StockAgent Dashboard                      │
+│            (AG Grid tables, AI activity panel)                │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────────┐
+│                Express API (:3000)                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐     │
+│  │ Stock Agent  │  │ Order Agent │  │ Compliance Agent │     │
+│  │ Check levels │  │ Select      │  │ Prevent dupes    │     │
+│  │ Burn rate    │  │ supplier    │  │ Validate supplier│     │
+│  └──────┬──────┘  └──────┬──────┘  └────────┬─────────┘     │
+│         └────────────────┼──────────────────┘               │
+│                    PRIMARY AGENT                             │
+│              Claude Haiku 5.5 (Anthropic SDK)                │
+│                          │                                   │
+│  ┌───────────────────────▼──────────────────────────────┐   │
+│  │ Notifications: Email (Gmail) · Discord · WhatsApp     │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────────┐
+│              MCP Server (:3001) — PayPal Gateway             │
+│  POST /v1/payments/payouts     → Supplier payments           │
+│  POST /v2/invoicing/invoices   → Recipient billing           │
+│  POST /v2/invoicing/invoices/:id/send → Auto-send            │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+## PayPal Integration
+
+StockAgent uses **two PayPal APIs** through a Model Context Protocol (MCP) server:
+
+| API | Endpoint | Purpose |
+|-----|----------|---------|
+| **Payouts v1** | `POST /v1/payments/payouts` | Pay suppliers when reorder cycles are approved |
+| **Invoicing v2** | `POST /v2/invoicing/invoices` | Bill recipients for dispatched goods |
+| **Invoicing Send** | `POST /v2/invoicing/invoices/{id}/send` | Auto-send invoice to recipient |
+| **OAuth 2.0** | `POST /v1/oauth2/token` | Authentication |
+
+KES → USD conversion at rate 130 before all PayPal calls. Full details: [`docs/PAYPAL_INTEGRATION.md`](docs/PAYPAL_INTEGRATION.md)
+
+## Sponsor Tools
+
+| Sponsor | How We Used It |
+|---------|---------------|
+| **AG Grid** | Powers all data tables in the dashboard — inventory, invoices, PayPal transactions. Sortable, filterable, dark-themed enterprise grids replace basic HTML tables. Loaded via CDN (Community Edition). |
+| **Postman** | Full API collection with **26 requests across 7 folders** covering all endpoints: Products, Recipients, Invoices, Reorder Cycles, AI Agent, Analytics, and MCP PayPal. Import [`docs/StockAgent.postman_collection.json`](docs/StockAgent.postman_collection.json) to test the full API. |
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| AI Agent | Claude Haiku 5.5 (Anthropic SDK) |
+| AI Agent | Claude Haiku 5.5 (Anthropic SDK) with rule-based fallback |
 | Backend | Node.js / Express |
 | Database | SQLite (better-sqlite3) |
-| Payment Execution | PayPal Payouts API, Invoicing API |
-| Agent Interface | MCP Server (Model Context Protocol) |
-| Invoice Generation | PDFKit (professional PDF export) |
-| Frontend | Vanilla JS SPA (dark theme, real-time agent panel) |
-| Data Grids | AG Grid (sortable, filterable tables) |
+| Payments | PayPal Payouts API + Invoicing API via MCP Server |
+| Invoice PDFs | PDFKit |
+| Frontend | Vanilla JS SPA with AG Grid |
+| Notifications | Email (Nodemailer/Gmail), Discord (webhooks), WhatsApp (Twilio) |
+| Deployment | Render (3 free-tier web services) |
 
 ## Features
 
-- **AI-Powered Inventory Analysis** — Claude analyzes stock levels, dispatch velocity, and supplier availability to recommend optimal reorder quantities
+- **AI-Powered Inventory Analysis** — 3 sub-agents analyze stock levels, dispatch velocity, and supplier availability
 - **Autonomous Reorder Cycles** — From stock detection to supplier payment, fully automated with compliance checks
-- **PayPal Integration** — Supplier payouts via Payouts API, recipient invoicing via Invoicing API
+- **PayPal Payouts + Invoicing** — Supplier payments and recipient billing through a single MCP gateway
 - **Professional Invoice PDFs** — Branded PDF generation with line items, totals, and recipient details
-- **Real-time Agent Visualization** — Live AI activity panel showing agent reasoning, decisions, and actions
-- **Demo Mode** — One-click full demo: dispatch → AI scan → supplier payment → invoice generation
-- **Compliance Engine** — Prevents duplicate orders, validates supplier availability, enforces business rules
+- **Real-time Notifications** — Email, Discord, and WhatsApp alerts for stock alerts, payouts, and invoices
+- **One-Click Demo** — Full autonomous cycle: dispatch → AI scan → supplier payment → invoice generation
+- **AG Grid Data Tables** — Enterprise-quality sortable, filterable grids for all data views
 - **Auto-trigger** — Dispatches that drop stock below threshold automatically trigger agent scans
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-cd services/api && npm install
-cd ../frontend && npm install
-cd ../../mcp-server && npm install
+# Install
+cd mcp-server && npm install && cd ..
+cd services/api && npm install && cd ../..
+cd services/frontend && npm install && cd ../..
 
-# Configure (optional — works in mock mode without keys)
+# Configure (optional — works in sandbox mode without keys)
 cp .env.example services/api/.env
-# Set ANTHROPIC_API_KEY for AI mode
-# Set PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET for live PayPal
 
-# Start all services
+# Start
 cd mcp-server && PORT=3001 node index.js &
 cd services/api && PORT=3000 node index.js &
 cd services/frontend && PORT=3002 node server.js &
 
-# Open http://localhost:3002
+# Open http://localhost:3002 → Click "Run Full Demo"
 ```
 
-The system works fully in mock mode (no API keys needed). Set `ANTHROPIC_API_KEY` for AI-powered analysis, and PayPal credentials for live payments.
+Works fully in sandbox mode. Set `ANTHROPIC_API_KEY` for AI analysis, PayPal credentials for live payments, `EMAIL_FROM` + `EMAIL_APP_PASSWORD` for email notifications.
+
+## Notifications
+
+| Event | Email | Discord | WhatsApp |
+|---|---|---|---|
+| Stock below threshold | HTML table with severity | Red/yellow embed | Text alert |
+| Reorder cycles created | Table with cycle details | Purple embed | Text with approval link |
+| PayPal payout sent | Supplier + amount details | Blue embed | Text with batch ID |
+| Invoice generated | Invoice number + total | Green embed | Text with KES total |
+
+All channels are optional — leave env vars blank and notifications are silently skipped.
 
 ## Team — Diron Technologies
 
@@ -115,51 +143,14 @@ The system works fully in mock mode (no API keys needed). Set `ANTHROPIC_API_KEY
 | Dan | MCP Server & PayPal Integration |
 | Elvis | AWS Infrastructure & Delivery |
 
-## Prize Categories Targeted
+## Prize Categories
 
-- Best Overall
-- Best Use of Agentic Commerce
-- Best Use of PayPal + AI
-
-**PayPal AI Hackathon — Build What's Next — Deadline: November 12, 2026**
-
-## API Documentation
-
-A full Postman collection with 26 requests across 7 folders is available at [`docs/StockAgent.postman_collection.json`](docs/StockAgent.postman_collection.json). Import it into Postman to explore and test all endpoints.
-
-For details on PayPal API integration, see [`docs/PAYPAL_INTEGRATION.md`](docs/PAYPAL_INTEGRATION.md).
-
-## Sponsor Tools Used
-
-| Sponsor | Integration |
-|---|---|
-| **AG Grid** | Enterprise-quality data grids for inventory, invoices, and PayPal transaction tables |
-| **Postman** | Full API collection (26 endpoints) for testing and documentation |
-
-## Notifications
-
-StockAgent sends real-time alerts to **Discord** and **WhatsApp** when key events happen:
-
-| Event | Discord | WhatsApp |
-|---|---|---|
-| Stock below threshold | Red/yellow embed with product list | Text alert with severity |
-| Reorder cycles created | Purple embed with cycle details | Text with approval prompt |
-| PayPal payout sent | Blue embed with batch ID + amount | Text with supplier + USD amount |
-| Invoice generated | Green embed with invoice number | Text with recipient + KES total |
-
-**Discord** — paste a webhook URL into `DISCORD_WEBHOOK_URL`. Free, no auth needed.
-**WhatsApp** — uses Twilio API. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `WHATSAPP_NOTIFY_NUMBER`. Works with the free Twilio sandbox (`whatsapp:+14155238886`).
-
-Both channels are optional — leave the env vars blank and notifications are silently skipped.
-
-## What Makes StockAgent Different
-
-Most supply chain AI tools stop at recommendations. StockAgent closes the loop — from AI insight to PayPal payment execution — in a single autonomous flow. The agent doesn't just tell you what to reorder; it orders, pays, and invoices.
-
-## License
-
-MIT
+- **Best Overall**
+- **Best Use of Agentic Commerce**
+- **Best Use of PayPal + AI**
 
 ---
+
+**PayPal AI Hackathon — Build What's Next — November 2026**
 
 Built by [Diron Technologies](https://github.com/Diron-Consulting) — Cloud & Engineering Consultancy for East Africa.
