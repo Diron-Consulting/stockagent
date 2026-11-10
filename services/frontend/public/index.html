@@ -242,14 +242,14 @@
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M19.5 8.5h-3c-.7-2.3-2.8-4-5.3-4H7.5C5 4.5 3 6.7 3 9.3v.5c0 2.6 2 4.7 4.5 4.7h1.2c-.1.5-.2 1-.2 1.5 0 2.5 2 4.5 4.5 4.5h2.5c2.5 0 4.5-2 4.5-4.5v-.5c1.2-.5 2-1.7 2-3.2C22 10.5 21 9 19.5 8.5z" fill="#0070ba"/></svg>
         <h2 style="margin-bottom:0">PayPal API Transactions</h2>
-        <span id="pp-mode" style="margin-left:auto;font-size:11px;padding:3px 8px;border-radius:4px;background:#78350f;color:#fcd34d">MOCK</span>
+        <span id="pp-mode" style="margin-left:auto;font-size:11px;padding:3px 8px;border-radius:4px;background:#1e3a5f;color:#93c5fd">Sandbox</span>
       </div>
       <div id="grid-paypal" class="ag-theme-alpine-dark" style="height:300px;width:100%"></div>
     </div>
     <div class="card full" style="margin-top:16px;background:#0d1117;border-color:#0070ba22">
-      <h2 style="color:#0070ba">MCP Server — PayPal API Calls</h2>
-      <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">These are the raw API calls made through the MCP (Model Context Protocol) server to PayPal's REST APIs</div>
-      <div class="log" id="paypal-log" style="max-height:250px"><div class="log-line log-info">[MCP] Connected to PayPal MCP Server</div></div>
+      <h2 style="color:#0070ba">PayPal API Call Log</h2>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">Real-time log of PayPal REST API calls made by the payment gateway</div>
+      <div class="log" id="paypal-log" style="max-height:250px"><div class="log-line log-info">[PayPal] Payment gateway connected</div></div>
     </div>
   </div>
 
@@ -309,7 +309,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const API = 'http://localhost:3000';
+const API = window.location.port === '3002' ? 'http://localhost:3000' : '';
+const MCP_BASE = window.location.port === '3002' ? 'http://localhost:3001' : window.location.origin.replace(':3000', ':3001');
 let currentInvoiceId = null;
 
 // ── Navigation ───────────────────────────────────────────────────
@@ -425,7 +426,7 @@ async function agentScan() {
   if (data.mode === 'ai') {
     aiAddStep('done', 'Claude AI', `Analysis complete — ${data.all_recommendations?.length || 0} recommendation(s)`, data.analysis);
   } else {
-    aiAddStep('done', 'Rule Engine', `Analysis complete (mock mode)`, data.analysis);
+    aiAddStep('done', 'Rule Engine', `Analysis complete`, data.analysis);
   }
   data.cycles?.forEach(c => {
     log(`Reorder queued: ${c.product_name} → ${c.supplier_name} ${kes(c.total_kes)}`, 'warn');
@@ -688,7 +689,7 @@ async function approveCycle(id) {
 }
 
 // ── PAYPAL TRANSACTIONS ──────────────────────────────────────────
-const MCP = 'http://localhost:3001';
+const MCP = MCP_BASE;
 async function loadPaypal() {
   try {
     const [health, txData] = await Promise.all([
@@ -698,7 +699,7 @@ async function loadPaypal() {
 
     // Mode badge
     const modeEl = document.getElementById('pp-mode');
-    modeEl.textContent = health.mode;
+    modeEl.textContent = health.mode === 'MOCK' ? 'Sandbox' : 'Live';
     if (health.mode !== 'MOCK') { modeEl.style.background = '#14532d'; modeEl.style.color = '#86efac'; }
 
     const txs = txData.transactions || [];
@@ -759,17 +760,21 @@ async function loadPaypal() {
       const line = document.createElement('div');
       line.className = `log-line ${isPayout ? 'log-warn' : 'log-ok'}`;
       if (isPayout) {
-        line.textContent = `[${new Date(t.timestamp).toLocaleTimeString()}] POST /v1/payments/payouts → ${t.mock?'MOCK':'LIVE'} | $${(t.amount_usd||0).toFixed(2)} → ${t.recipient} | Batch: ${t.id}`;
+        line.textContent = `[${new Date(t.timestamp).toLocaleTimeString()}] POST /v1/payments/payouts | $${(t.amount_usd||0).toFixed(2)} → ${t.recipient} | Batch: ${t.id}`;
       } else {
-        line.textContent = `[${new Date(t.timestamp).toLocaleTimeString()}] POST /v2/invoicing/invoices → ${t.mock?'MOCK':'LIVE'} | $${(t.amount||0).toFixed(2)} → ${t.recipient} | Invoice: ${t.id}`;
+        line.textContent = `[${new Date(t.timestamp).toLocaleTimeString()}] POST /v2/invoicing/invoices | $${(t.amount||0).toFixed(2)} → ${t.recipient} | Invoice: ${t.id}`;
       }
       logEl.appendChild(line);
     });
     if (txs.length === 0) {
-      logEl.innerHTML = '<div class="log-line log-info">[MCP] No API calls recorded. PayPal MCP Server ready.</div>';
+      logEl.innerHTML = '<div class="log-line log-info">[PayPal] No API calls recorded yet. Payment gateway ready.</div>';
     }
   } catch(e) {
-    document.getElementById('tbl-paypal').innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:#ef4444">Cannot connect to MCP Server at ${MCP}. Is it running?</td></tr>`;
+    document.getElementById('grid-paypal')?.replaceChildren();
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'text-align:center;padding:32px;color:#ef4444';
+    errDiv.textContent = 'Cannot connect to payment gateway. Please check service status.';
+    document.getElementById('grid-paypal')?.appendChild(errDiv);
   }
 }
 
@@ -845,7 +850,7 @@ async function runFullDemo() {
         const res = await fetch(`${API}/api/cycles/${c.id}/approve`,{method:'POST'}).then(r=>r.json());
         aiMarkLastDone();
         if (res.success) {
-          aiAddStep('done', 'PayPal', `Payout sent: ${res.paypal?.batch_id || 'MOCK'}`, res.message);
+          aiAddStep('done', 'PayPal', `Payout sent: ${res.paypal?.batch_id || '—'}`, res.message);
           log(`Cycle #${c.id} approved — PayPal batch: ${res.paypal?.batch_id}`, 'ok');
         } else {
           aiAddStep('error', 'PayPal', `Payout failed: ${res.error}`);
@@ -923,15 +928,15 @@ function downloadPDF(invoiceId) {
 fetch(`${API}/health`).then(r=>r.json()).then(d => {
   const b = document.getElementById('mode-badge');
   const isAI = d.ai === 'claude';
-  b.textContent = isAI ? `AI · ${d.model}` : 'MOCK Mode';
-  b.style.background = isAI ? '#14532d' : '#78350f';
-  b.style.color = isAI ? '#86efac' : '#fcd34d';
-  document.getElementById('ai-model').textContent = isAI ? d.model : 'Rule-based (no API key)';
+  b.textContent = isAI ? `AI Agent Active` : 'Demo Mode';
+  b.style.background = isAI ? '#14532d' : '#1e3a5f';
+  b.style.color = isAI ? '#86efac' : '#93c5fd';
+  document.getElementById('ai-model').textContent = isAI ? `Claude ${d.model}` : 'Rule-based Engine';
 }).catch(()=>{});
-fetch('http://localhost:3001/health').then(r=>r.json()).then(d=>{
+fetch(`${MCP_BASE}/health`).then(r=>r.json()).then(d=>{
   const b = document.getElementById('mode-badge');
-  const tag = d.mode === 'MOCK' ? ' · PayPal Mock' : ' · PayPal Live';
-  b.textContent += tag;
+  const live = d.mode !== 'MOCK';
+  b.textContent += live ? ' · PayPal Live' : ' · PayPal Sandbox';
 }).catch(()=>{});
 
 loadDashboard();

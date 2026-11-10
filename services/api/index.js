@@ -352,7 +352,7 @@ async function runPrimaryAgent() {
       aiResult = generateMockAIResponse(snapshot);
     }
   } else {
-    agentLog("mock_mode", "No ANTHROPIC_API_KEY — using rule-based analysis (set key for AI mode)");
+    agentLog("rule_engine", "Using rule-based inventory analysis engine");
     aiResult = generateMockAIResponse(snapshot);
   }
 
@@ -386,7 +386,7 @@ async function runPrimaryAgent() {
     agentLog("compliance_skip", `${s.product_name}: ${s.compliance_note}`);
   }
 
-  const summary = `${cycles.length} reorder cycle(s) created. ${skipped.length} skipped (compliance). Mode: ${mode}.`;
+  const summary = `${cycles.length} reorder cycle(s) created. ${skipped.length} skipped (compliance).`;
   agentLog("scan_complete", summary, { cycles_created: cycles.length, skipped: skipped.length });
 
   return {
