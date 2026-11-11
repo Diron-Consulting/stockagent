@@ -788,9 +788,16 @@ app.get("/health", (req, res) => res.json({
 app.locals.db = db;
 app.use(invoicePdfRouter);
 
+const SCAN_INTERVAL_MS = parseInt(process.env.SCAN_INTERVAL_MINUTES || "60", 10) * 60 * 1000;
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`StockAgent API on http://localhost:${PORT}`);
   console.log(`AI Mode: ${AI_ENABLED ? `Claude ${AI_MODEL}` : "Rule Engine (set ANTHROPIC_API_KEY for AI)"}`);
+  console.log(`Scheduled scan: every ${SCAN_INTERVAL_MS / 60000} minutes`);
   setTimeout(() => runPrimaryAgent().catch(err => console.error("[Agent] Startup scan error:", err.message)), 1500);
+  setInterval(() => {
+    agentLog("scheduled_scan", "Scheduled inventory scan triggered");
+    runPrimaryAgent().catch(err => agentLog("scheduled_scan_error", err.message));
+  }, SCAN_INTERVAL_MS);
 });

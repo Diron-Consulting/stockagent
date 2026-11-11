@@ -76,9 +76,15 @@ StockAgent uses a **Primary Agent** (Claude Haiku 5.5 via the Anthropic SDK) tha
 
 **Example reasoning:** *"Supplier Unga Group already has pending reorder cycle #3. Skipping to prevent duplicate order."* — This stops the system from sending a second PayPal payout to the same supplier for goods already on the way.
 
-### Auto-Trigger: No Human Needed to Start
+### When Do the Agents Run?
 
-The agent doesn't wait for someone to click "scan." Every time a dispatch is recorded (`POST /api/products/:id/dispatch`), the system checks: did stock just drop below threshold? If yes, the Primary Agent fires automatically. The owner only steps in to approve the payment.
+The agents run in three ways — no human has to remember to trigger a scan:
+
+1. **On dispatch** — Every time goods are dispatched, the system checks: did stock drop below threshold? If yes, the Primary Agent fires automatically.
+2. **On schedule** — A background scan runs every 60 minutes (configurable via `SCAN_INTERVAL_MINUTES` env var) to catch stock that drifted below threshold without a dispatch — e.g. manual adjustments, corrections, or slow-moving products.
+3. **On startup** — The agent runs a full inventory scan when the server starts, so the system is never blind after a deploy or restart.
+
+The owner only steps in to approve the payment.
 
 ### AI Mode vs Rule Engine
 
