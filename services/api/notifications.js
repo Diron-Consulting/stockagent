@@ -102,8 +102,30 @@ async function sendWhatsApp(message) {
 function notifyStockAlert(analysis, recommendations) {
   const critical = recommendations.filter((r) => r.severity === "critical");
   const low = recommendations.filter((r) => r.severity === "low");
+  const timestamp = new Date().toISOString();
 
-  if (critical.length === 0 && low.length === 0) return;
+  if (critical.length === 0 && low.length === 0) {
+    sendDiscord({
+      title: "✅ Inventory Scan Complete — All Stock Healthy",
+      description: analysis,
+      color: 0x22c55e,
+      fields: [
+        { name: "Status", value: "All products above reorder threshold", inline: true },
+        { name: "Scanned At", value: new Date().toLocaleString(), inline: true },
+      ],
+      timestamp,
+    });
+
+    sendWhatsApp(
+      [`✅ *StockAgent Scan Complete*`, ``, analysis, ``, `All products above reorder threshold. No action needed.`].join("\n")
+    );
+
+    sendEmail(
+      `✅ Inventory Scan — All Stock Healthy`,
+      `<h2>Inventory Scan Complete</h2><p>${analysis}</p><p style="color:#22c55e;font-weight:bold">All products are above their reorder thresholds. No reorders needed.</p><p style="color:#64748b;font-size:12px">Scanned at ${new Date().toLocaleString()}</p>`
+    );
+    return;
+  }
 
   const items = recommendations
     .map(
@@ -121,7 +143,7 @@ function notifyStockAlert(analysis, recommendations) {
       { name: "Low", value: String(low.length), inline: true },
       { name: "Products", value: items.slice(0, 1024) },
     ],
-    timestamp: new Date().toISOString(),
+    timestamp,
   });
 
   const wa = [
