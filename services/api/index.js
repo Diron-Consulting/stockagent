@@ -529,6 +529,20 @@ app.post("/api/invoices/generate/:recipient_id", (req, res) => {
 
   const fullInvoice = db.prepare("SELECT * FROM invoices WHERE id=?").get(invoiceId);
   const items = db.prepare(`SELECT ii.*,p.name as product_name,p.sku,p.unit FROM invoice_items ii JOIN products p ON p.id=ii.product_id WHERE ii.invoice_id=?`).all(invoiceId);
+
+  axios.post(`${MCP_URL}/tools/create_invoice`, {
+    recipient_email: recipient.email || "customer@example.com",
+    recipient_name: recipient.name,
+    items: unbilled.map(d => ({
+      name: d.product_name,
+      quantity: d.quantity,
+      unit_price: parseFloat(kesToUsd(d.total_kes / d.quantity)),
+      currency: "USD"
+    })),
+    note: `StockAgent Invoice ${invoiceNum}`,
+    due_date: dueDate.toISOString().slice(0,10)
+  }).catch(err => console.error("[MCP Invoice]", err.message));
+
   notifyInvoiceCreated(fullInvoice, recipient.name, total_kes);
   res.json({ invoice: fullInvoice, items, recipient, total_kes });
 });
@@ -717,14 +731,36 @@ app.post("/api/agent/demo", async (req, res) => {
       const invoiceNum = nextInvoiceNumber();
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
+      const dueDateStr = dueDate.toISOString().slice(0,10);
       const inv = db.prepare(`INSERT INTO invoices (invoice_number,recipient_id,total_kes,status,due_date) VALUES (?,?,?,'unpaid',?)`).run(
-        invoiceNum, recipient.id, unbilled.total_kes, dueDate.toISOString().slice(0,10)
+        invoiceNum, recipient.id, unbilled.total_kes, dueDateStr
       );
       db.prepare("INSERT INTO invoice_items (invoice_id,product_id,quantity,unit_price_kes,total_kes) VALUES (?,?,?,?,?)").run(
         inv.lastInsertRowid, unbilled.product_id, unbilled.quantity, unbilled.unit_price_kes, unbilled.total_kes
       );
       db.prepare("UPDATE dispatches SET invoice_id=? WHERE id=?").run(inv.lastInsertRowid, unbilled.id);
       const demoInvoice = db.prepare("SELECT * FROM invoices WHERE id=?").get(inv.lastInsertRowid);
+
+      try {
+        const invoiceProduct = db.prepare("SELECT name FROM products WHERE id=?").get(unbilled.product_id);
+        const amount_usd = parseFloat(kesToUsd(unbilled.total_kes));
+        await axios.post(`${MCP_URL}/tools/create_invoice`, {
+          recipient_email: recipient.email || "customer@example.com",
+          recipient_name: recipient.name,
+          items: [{
+            name: invoiceProduct?.name || "Goods dispatched",
+            quantity: unbilled.quantity,
+            unit_price: parseFloat(kesToUsd(unbilled.unit_price_kes)),
+            currency: "USD"
+          }],
+          note: `StockAgent Invoice ${invoiceNum}`,
+          due_date: dueDateStr
+        });
+        agentLog("demo_paypal_invoice", `PayPal invoice created via MCP for ${recipient.name}: $${amount_usd}`);
+      } catch (err) {
+        agentLog("demo_paypal_invoice_error", `MCP invoice call failed: ${err.message}`);
+      }
+
       notifyInvoiceCreated(demoInvoice, recipient.name, unbilled.total_kes);
       steps.push({ step: "invoice", message: `Invoice ${invoiceNum} generated for ${recipient.name}: KES ${unbilled.total_kes.toLocaleString()}` });
       agentLog("demo_invoice", `Invoice ${invoiceNum} created: KES ${unbilled.total_kes}`);
