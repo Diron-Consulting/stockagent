@@ -10,7 +10,10 @@ const CALLMEBOT_APIKEY = process.env.CALLMEBOT_APIKEY;
 
 const EMAIL_FROM = process.env.EMAIL_FROM;
 const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
-const EMAIL_TO = process.env.EMAIL_TO || EMAIL_FROM;
+let EMAIL_TO = process.env.EMAIL_TO || EMAIL_FROM;
+
+function getEmailTo() { return EMAIL_TO; }
+function setEmailTo(email) { EMAIL_TO = email; }
 
 const emailTransport =
   EMAIL_FROM && EMAIL_APP_PASSWORD
@@ -30,6 +33,20 @@ async function sendDiscord(embed) {
     });
   } catch (err) {
     console.error("[Notify][Discord]", err.message);
+  }
+}
+
+async function sendAdminEmail(subject, html) {
+  if (!emailTransport || !EMAIL_FROM) return;
+  try {
+    await emailTransport.sendMail({
+      from: `"StockAgent" <${EMAIL_FROM}>`,
+      to: EMAIL_FROM,
+      subject,
+      html,
+    });
+  } catch (err) {
+    console.error("[Notify][AdminEmail]", err.message);
   }
 }
 
@@ -274,6 +291,9 @@ module.exports = {
   notifyPayoutSent,
   notifyInvoiceCreated,
   notifyCycleCreated,
+  getEmailTo,
+  setEmailTo,
+  sendAdminEmail,
   DISCORD_ENABLED: !!DISCORD_WEBHOOK,
   WHATSAPP_ENABLED: !!((TWILIO_SID && TWILIO_TOKEN && WHATSAPP_TO) || (CALLMEBOT_APIKEY && WHATSAPP_TO)),
   EMAIL_ENABLED: !!emailTransport,

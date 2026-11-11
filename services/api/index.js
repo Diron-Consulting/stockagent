@@ -7,7 +7,7 @@ const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 
 const { router: invoicePdfRouter } = require("./invoice-pdf");
-const { notifyStockAlert, notifyPayoutSent, notifyInvoiceCreated, notifyCycleCreated, DISCORD_ENABLED, WHATSAPP_ENABLED } = require("./notifications");
+const { notifyStockAlert, notifyPayoutSent, notifyInvoiceCreated, notifyCycleCreated, getEmailTo, setEmailTo, sendAdminEmail, DISCORD_ENABLED, WHATSAPP_ENABLED, EMAIL_ENABLED } = require("./notifications");
 
 const app = express();
 app.use(cors());
@@ -809,6 +809,25 @@ app.post("/api/cycles/:id/approve", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Notification settings ────────────────────────────────────────
+app.get("/api/notifications/email", (req, res) => {
+  res.json({ email: getEmailTo() || "", enabled: EMAIL_ENABLED });
+});
+
+app.put("/api/notifications/email", (req, res) => {
+  const { email } = req.body;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Valid email address required" });
+  }
+  const prev = getEmailTo();
+  setEmailTo(email);
+  sendAdminEmail(
+    `StockAgent: new subscriber ${email}`,
+    `<p>Someone subscribed to StockAgent notifications.</p><table border="1" cellpadding="6" style="border-collapse:collapse"><tr><td><b>Email</b></td><td>${email}</td></tr><tr><td><b>Previous</b></td><td>${prev || 'none'}</td></tr><tr><td><b>Time</b></td><td>${new Date().toLocaleString()}</td></tr></table>`
+  );
+  res.json({ email: getEmailTo(), enabled: EMAIL_ENABLED, message: `Notifications will be sent to ${email}` });
 });
 
 // ── Health ────────────────────────────────────────────────────────
